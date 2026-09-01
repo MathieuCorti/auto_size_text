@@ -10,10 +10,11 @@ Base du lot : `cc5da0eafcfd17130978041fa1bcc638dfa10d20`
 
 **NO-GO en l'état : un finding P2 reproductible reste ouvert.** Les chemins
 valides du lot passent la matrice Flutter 3.41.0 / 3.47.2 et les probes
-lifecycle demandés. En revanche, une erreur de mesure dry traverse directement
-la frontière `RenderBox`. Flutter laisse alors son garde dry interne armé ; un
-second appel sur le même render object échoue sur une assertion de framework,
-même après installation d'une configuration redevenue valide.
+lifecycle demandés. En revanche, un `StateError` levé par l'implémentation
+utilisateur de `TextScaler.scale` traverse directement la frontière
+`RenderBox`. Flutter laisse alors son garde dry interne armé ; un second appel
+sur le même render object échoue sur une assertion de framework, même après
+installation d'une configuration redevenue valide.
 
 Le finding ne remet pas en cause le choix architectural lean, la branche
 replacement lazy, les groupes, `textKey`, les recognizers, la sélection ou les
@@ -26,13 +27,23 @@ est requise avant acceptation.
 
 ### [P2] Une erreur dry empoisonne les appels dry suivants du render object
 
-**Fichier :** `lib/src/auto_size_text_render_object.dart:187-223`
+**Fichiers :** `lib/src/auto_size_text_render_object.dart:187-223` et
+`lib/src/auto_size_text_layout.dart:159-165,347-377,465-493,537-545`
 
 `computeDryLayout`, `computeDryBaseline` et les quatre intrinsics appellent
-directement `_snapshot.select` / `intrinsicHeight`. Ces opérations peuvent
-légitimement lever : scaler personnalisé invalide, `TextSpan.build` fautif ou
-erreur de construction de paragraphe. Contrairement à `performLayout`, aucune
-de ces six méthodes ne capture l'erreur.
+directement `_snapshot.select` / `intrinsicHeight`. Dans la reproduction, la
+sélection arrive dans `_measure`, puis `TextPainter.layout` appelle
+`_CandidateTextScaler.scale`. La ligne 163 délègue à
+`source.scale(adjustedFontSize)` : le scaler fourni par l'appelant lève alors
+exactement `StateError('review scaler failure')`. Le `finally` de `_measure`
+dispose correctement le painter, puis ce même `StateError` remonte sans
+transformation à travers `computeDryLayout` ou `computeDryBaseline`.
+
+Il ne s'agit donc ni d'un `ArgumentError` produit par la validation numérique
+du package, ni d'une erreur du child rendu. `_checkedEffectiveFontSize` appelle
+aussi directement le scaler utilisateur à la ligne 542 et constitue le second
+point d'entrée à normaliser. Contrairement à `performLayout`, aucune des six
+méthodes non-wet ne traite cette erreur d'entrée utilisateur.
 
 Sur Flutter 3.41.0 et 3.47.2, `RenderBox._computeDryLayout` et
 `RenderBox._computeDryBaseline` positionnent respectivement
@@ -46,11 +57,11 @@ garde armé. Le second appel échoue avant même de revenir dans le package :
 '!_computingThisDryLayout': is not true
 ```
 
-Le même fichier Flutter fait aussi traverser les quatre intrinsics par
-`_computeWithTimeline`, dont la profondeur de mesure et la timeline ne sont
-refermées qu'après un retour normal. Empêcher l'exception de franchir la
-frontière est donc nécessaire pour les six méthodes, pas seulement pour dry
-layout.
+L'inspection des deux SDK montre aussi que les quatre intrinsics traversent
+`RenderBox._computeWithTimeline`, dont la profondeur de mesure et la timeline ne
+sont refermées qu'après un retour normal. Le probe rend directement observable
+l'empoisonnement des deux gardes dry ; la même erreur utilisateur ne doit pas
+sortir des quatre entrées intrinsèques non plus.
 
 ### Reproduction indépendante
 
@@ -62,7 +73,8 @@ Le probe temporaire utilise un `TextScaler` **immuable** qui lève toujours. Il
 2. reconstruire seulement jusqu'à `EnginePhase.build` avec le scaler fautif,
    de sorte que le nouveau snapshot soit installé sans wet layout ;
 3. appeler `getDryLayout` sur le premier parent et `getDryBaseline` sur le
-   second : les deux transmettent le `StateError` d'origine ;
+   second : les deux transmettent exactement
+   `StateError('review scaler failure')`, issu de `TextScaler.scale` ;
 4. reconstruire seulement jusqu'à `EnginePhase.build` avec
    `TextScaler.noScaling` ;
 5. répéter les deux requêtes sur les mêmes render objects : les deux lèvent
@@ -73,6 +85,24 @@ erreur. L'effet observé est donc bien l'état interne du protocole dry, et non 
 remplacement de branche ou une destruction du child. Le cas est identique sous
 Flutter 3.41.0 et 3.47.2.
 
+### Ce que ce finding n'est pas
+
+Le finding ne concerne pas un child qui ne sait pas répondre au dry layout.
+La branche replacement `LayoutBuilder` contient volontairement un render box
+qui lève si l'une de ses six métriques non-wet est appelée. Le parent
+`_RenderAutoSizeText` ne consulte jamais ce child pendant dry/intrinsic ; tous
+les probes correspondants passent avant, pendant et après wet overflow. Il n'y
+a donc aucune raison de capturer ou masquer une erreur `debugCannotComputeDryLayout`
+de child, et le correctif ne doit pas interroger la branche active.
+
+Le premier `StateError` appartient à l'entrée utilisateur `TextScaler`. Le
+second `AssertionError` appartient au garde de protocole Flutter laissé armé
+par la sortie exceptionnelle. Le package doit empêcher la première erreur
+utilisateur de franchir cette frontière précise ; il ne doit pas convertir en
+fallback toutes les assertions, `FlutterError` ou erreurs internes de
+`TextPainter`/Flutter. Aucun défaut séparé de child ou de framework n'est
+revendiqué par cette reproduction.
+
 Les tests permanents ne le détectent pas :
 
 - `text_painter_lifecycle_test.dart` vérifie une erreur de paragraphe pendant
@@ -81,15 +111,35 @@ Les tests permanents ne le détectent pas :
 - aucun test n'enchaîne erreur dry, configuration valide et seconde requête sur
   la même instance de `_RenderAutoSizeText`.
 
-### Correction attendue
+### Correction lean recommandée
 
-Les six overrides doivent empêcher une exception de mesure de sortir du
-callback Flutter qui tient ces gardes. La correction doit conserver l'erreur
-d'origine via `FlutterError.reportError`, retourner une valeur de repli finie et
-bornée adaptée à chaque protocole, et continuer à disposer tous les painters en
-`finally`. Les régressions doivent couvrir dry layout, dry baseline et au moins
-un intrinsic avec : première erreur, rebuild valide, second appel valide sur le
-même render object. Le traitement wet existant doit rester inchangé.
+Le correctif ne devrait pas ajouter un `catch (Object)` autour de
+`_snapshot.select`, car il masquerait aussi un invariant cassé dans la recherche
+du package ou dans Flutter. La frontière étroite est connue : les appels au
+`TextScaler` fourni par l'utilisateur.
+
+1. Faire passer `source.scale` (`_CandidateTextScaler.scale`, ligne 163) et
+   `scaler.scale` (`_checkedEffectiveFontSize`, ligne 542) par un helper privé.
+   Son `try/catch` doit entourer **uniquement** l'appel au callback utilisateur,
+   conserver l'objet erreur et sa stack, puis lever un wrapper privé typé, par
+   exemple `_AutoSizeTextUserScalerFailure`. Une sortie non finie ou négative
+   doit produire le même wrapper typé après la validation existante.
+2. Dans les six overrides dry/intrinsic, capturer uniquement ce wrapper privé.
+   Rapporter son erreur originale et sa stack avec `FlutterError.reportError`,
+   puis retourner un fallback fini sans mutation : `constraints.smallest` pour
+   dry layout, `0.0` pour baseline et intrinsics. Ne pas démonter le child, ne
+   pas publier au groupe et ne pas lire la replacement.
+3. Laisser remonter les erreurs levées hors du seul appel au callback
+   utilisateur, notamment `AssertionError`, `FlutterError`, `UnsupportedError`
+   et les erreurs internes de `TextPainter`/Flutter. Le traitement wet existant
+   reste inchangé.
+
+Ce ciblage traite l'entrée utilisateur prouvée sans catch-all dangereux et
+laisse les `finally` actuels disposer les painters. Les régressions doivent
+couvrir dry layout, dry baseline et au moins un intrinsic avec : scaler
+immuable fautif, erreur originale rapportée, rebuild valide, puis second appel
+valide sur le même render object. Elles doivent conserver le témoin child
+wet-only qui lève si le parent le consulte.
 
 ## Surfaces relues et résultats
 
