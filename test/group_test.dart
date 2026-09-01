@@ -116,5 +116,165 @@ void main() {
 
       await tester.pump(Duration.zero);
     });
+
+    testWidgets(
+      'should transfer and detach a stable member without stale contributions',
+      (tester) async {
+        final firstGroup = AutoSizeGroup();
+        final secondGroup = AutoSizeGroup();
+        const movingWidgetKey = ValueKey<String>('moving-widget');
+        const movingTextKey = ValueKey<String>('moving-text');
+        const firstSurvivorKey = ValueKey<String>('first-survivor');
+        const secondSurvivorKey = ValueKey<String>('second-survivor');
+        AutoSizeGroup? membership = firstGroup;
+        late StateSetter update;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  children: <Widget>[
+                    AutoSizeText(
+                      '',
+                      key: movingWidgetKey,
+                      textKey: movingTextKey,
+                      style: const TextStyle(fontSize: 20),
+                      presetFontSizes: const <double>[20],
+                      textScaler: TextScaler.noScaling,
+                      group: membership,
+                    ),
+                    AutoSizeText(
+                      '',
+                      textKey: firstSurvivorKey,
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: firstGroup,
+                    ),
+                    AutoSizeText(
+                      '',
+                      textKey: secondSurvivorKey,
+                      style: const TextStyle(fontSize: 50),
+                      presetFontSizes: const <double>[50, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: secondGroup,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(effectiveFontSize(tester.widget(find.byKey(movingTextKey))), 20);
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(firstSurvivorKey))),
+          20,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
+          50,
+        );
+
+        update(() => membership = secondGroup);
+        await tester.pump();
+        await tester.pump();
+        expect(effectiveFontSize(tester.widget(find.byKey(movingTextKey))), 20);
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(firstSurvivorKey))),
+          40,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
+          20,
+        );
+
+        update(() => membership = null);
+        await tester.pump();
+        await tester.pump();
+        expect(effectiveFontSize(tester.widget(find.byKey(movingTextKey))), 20);
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(firstSurvivorKey))),
+          40,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
+          50,
+        );
+      },
+    );
+
+    testWidgets(
+      'should raise the limit once and ignore a member disposed before notify',
+      (tester) async {
+        final group = AutoSizeGroup();
+        const minimumWidgetKey = ValueKey<String>('minimum-widget');
+        const minimumTextKey = ValueKey<String>('minimum-text');
+        const survivorWidgetKey = ValueKey<String>('survivor-widget');
+        const survivorTextKey = ValueKey<String>('survivor-text');
+        var showMinimum = true;
+        late StateSetter update;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  children: <Widget>[
+                    if (showMinimum)
+                      AutoSizeText(
+                        '',
+                        key: minimumWidgetKey,
+                        textKey: minimumTextKey,
+                        style: const TextStyle(fontSize: 20),
+                        presetFontSizes: const <double>[20],
+                        textScaler: TextScaler.noScaling,
+                        group: group,
+                      ),
+                    AutoSizeText(
+                      '',
+                      key: survivorWidgetKey,
+                      textKey: survivorTextKey,
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: group,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          20,
+        );
+
+        update(() => showMinimum = false);
+        await tester.pump();
+        expect(find.byKey(minimumTextKey), findsNothing);
+        expect(tester.takeException(), isNull);
+
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          40,
+        );
+        expect(tester.takeException(), isNull);
+
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          40,
+        );
+        expect(tester.binding.hasScheduledFrame, isFalse);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
