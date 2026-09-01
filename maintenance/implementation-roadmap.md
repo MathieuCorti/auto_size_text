@@ -89,8 +89,11 @@ Règles communes de merge et de revert :
    revu à nouveau.
 5. Un lot qui change une API, un domaine numérique ou une frontière render est
    reverté **en entier** si une régression bloquante ne peut pas être corrigée
-   dans son périmètre. Aucun fallback approximatif n'est conservé pour rendre
-   la suite verte.
+   dans son périmètre. Aucun fallback approximatif non spécifié n'est conservé
+   pour rendre la suite verte. Les deux approximations explicitement adoptées
+   par le GO lean du lot 8 — texte minimum pour une replacement lazy et
+   placeholder zéro en dry/intrinsic — font partie du contrat, pas d'un
+   rattrapage de test.
 6. Aucun lot ne cherry-pick une PR amont entière. Les idées utiles sont
    réimplémentées et testées sur la base courante.
 
@@ -597,11 +600,17 @@ Le prototype doit démontrer :
 - relayout wet d'un enfant inline à plusieurs scales dans un même
   `performLayout`, puis état final correct, sans `markNeedsLayout` récursif ;
 - chemins dry et wet distincts : un child sans dry layout fonctionne en wet
-  ordinaire et échoue seulement quand un ancêtre exige le dry ;
+  ordinaire ; le mini-probe WidgetSpan retourne des métriques zéro en
+  dry/intrinsic sans consulter ce child ;
+- le mini-probe WidgetSpan du gate porte sur un seul placeholder et démontre
+  seulement wet automatique/taille et isolation de ses six métriques non-wet.
+  Paint, transform, hit test, sémantique, disposal du nouveau wrapper et ordre
+  multi-placeholder restent à prouver au lot 10 ;
 - baselines dry/wet pour alignements supportés ; scaling différent par taille
   de run ; taille de run zéro sans division ;
-- branche `overflowReplacement` inactive non montée, ou politique d'eager mount
-  explicitement acceptée avec cycle de vie/sémantique prouvés ;
+- branche `overflowReplacement` inactive non montée ; aucune politique eager ;
+  dry/intrinsics ne consultent jamais la replacement et retournent le
+  paragraphe au plus petit candidat si wet doit choisir cette branche ;
 - snapshot immuable de limite de groupe, aucune publication dry ;
 - libération des painters de recherche et possédés ;
 - comportement d'un enfant volontairement non monotone. La décision doit
@@ -612,9 +621,12 @@ Le prototype doit démontrer :
 
 ### Acceptation, risques, revue, revert
 
-- **GO :** la note prouve toutes les questions sans API publique, type privé ou
-  copie substantielle de `RenderParagraph`, et borne le coût à `O(log C)` pour
-  le texte et `O(P log C)` pour `P` placeholders monotones.
+- **GO :** la note prouve toutes les questions sans nouvelle API publique, type
+  privé, eager mount ou copie substantielle de `RenderParagraph`, et borne le
+  coût à `O(log C)` pour le texte. `O(P log C)` reste la cible d'acceptation du
+  lot 10, pas une propriété du mini-probe lean à un placeholder. La note
+  documente les deux divergences admises : replacement lazy et placeholder
+  WidgetSpan zéro en dry/intrinsic.
 - **NO-GO :** les lots 9 et 10 ne démarrent pas ; la release production reste
   bloquée. Un nouveau design retourne en revue, sans garde approximative.
 - **Reviewer attendu :** expert Flutter render/layout indépendant, idéalement
@@ -660,12 +672,18 @@ de ces findings n'est fermé par le prototype.
   wet calculent d'abord le même candidat local non groupé, puis projettent la
   taille rapportée sur ce même snapshot. Seul wet publie le candidat local,
   après avoir rendu ;
-- l'égalité dry/wet est exigée pour des contraintes et un snapshot identiques.
-  Une publication wet peut changer le snapshot de la frame suivante : entre
-  deux frames de convergence, on exige pureté, borne et convergence, pas une
-  égalité avec l'ancien snapshot ;
+- l'égalité dry/wet est exigée pour des contraintes et un snapshot identiques
+  tant que le texte est la branche wet choisie. Si le texte local déborde même
+  au minimum, dry layout, dry baseline et les quatre intrinsics retournent de
+  façon déterministe les métriques contraintes du paragraphe à ce minimum,
+  tandis que wet monte et layoutte la replacement ; cette divergence est
+  contractuelle. Une publication wet peut changer le snapshot de la frame
+  suivante : entre deux frames de convergence, on exige pureté, borne et
+  convergence, pas une égalité avec l'ancien snapshot ;
 - `overflowReplacement` conserve le cycle de vie actuel : la branche inactive
-  n'est ni montée, ni layoutée, ni peinte, ni hit-testée, ni sémantique ;
+  n'est ni montée, ni layoutée, ni peinte, ni hit-testée, ni sémantique. Dry et
+  intrinsics ne construisent, ne consultent et ne mesurent jamais le widget
+  replacement, y compris après un wet overflow ;
 - recognizers, semantics et sélection existante via `SelectionArea` sont
   préservés par réutilisation de `RenderParagraph`, pas par copie ;
 - `textKey` continue à trouver le paragraphe rendu mais ne garantit plus une
@@ -681,7 +699,9 @@ de ces findings n'est fermé par le prototype.
 - parité taille/baseline/candidat hors groupe ; pureté et convergence avec
   groupe, changement/retrait/dispose avant microtâche ;
 - stateful replacement : compteurs `initState`/`dispose`, flips fit/overflow,
-  une seule branche visible/sémantique ;
+  une seule branche visible/sémantique ; replacement avec `LayoutBuilder` et
+  descendant qui rejette toutes les métriques dry/intrinsic, jamais appelé par
+  ces chemins mais correctement layouté en wet ;
 - texte simple/riche, wrap, maxLines, presets, scaler non linéaire,
   `textKey`, recognizers, semantics et `SelectionArea` ;
 - leak tracking de tous les painters et compteur prouvant `O(log C)`.
@@ -689,8 +709,10 @@ de ces findings n'est fermé par le prototype.
 ### Acceptation, risques, revue, revert
 
 - **Acceptation :** les six issues intrinsic ne reproduisent plus d'exception,
-  aucun `LayoutBuilder` produit, aucune copie importante de logique privée,
-  aucune mutation dry, comportements historiques préservés.
+  aucun `LayoutBuilder` n'est utilisé comme frontière du texte, aucune copie
+  importante de logique privée, aucune mutation dry, replacement strictement
+  lazy et fallback texte minimum documenté, comportements historiques
+  préservés.
 - **Risques :** contrat intrinsic incorrect, groupe observé pendant dry,
   replacement monté à tort, rupture sélection/sémantique, changement `textKey`.
 - **Reviewer attendu :** revue architecturale render indépendante obligatoire.
@@ -724,15 +746,19 @@ pas CORE-01/#61/#106.
   avec le comportement de taille zéro vérifié contre Flutter `3.41.0` ;
 - ce facteur affecte contraintes inverses, taille, baseline, transformation de
   paint et hit testing ; dimensions fournies dans le même ordre au painter ;
-- intrinsics/dry utilisent intrinsics, `getDryLayout` et `getDryBaseline` des
-  children ; wet utilise `child.layout` et baseline réelle pour les candidats
+- wet utilise `child.layout` et la baseline réelle pour les candidats
   spéculatifs, puis laisse chaque child au candidat final ;
-- un child sans dry layout reste supporté en wet ordinaire ;
+- le wrapper interne ne consulte jamais les métriques non-wet d'un child
+  arbitraire : dry size, dry baseline et les quatre intrinsics du placeholder
+  valent zéro. Un child sans dry layout reste donc supporté en wet ordinaire,
+  sans crash si un ancêtre demande ensuite dry/intrinsic ;
 - `overflowReplacement` reste hors de la liste des placeholders et la branche
   inactive ne garde pas les widgets inline montés ;
 - complexité normale `O(P log C)`. L'hypothèse de monotonie des widgets inline
-  est documentée ; un child non monotone doit rester déterministe, borné et sans
-  désaccord dry/wet, sans promesse d'optimum global non démontrée.
+  est documentée ; un child non monotone doit rester déterministe et borné,
+  sans promesse d'optimum global. La géométrie dry/intrinsic à placeholder zéro
+  peut différer du wet et sélectionner un autre candidat ; cette divergence est
+  explicitement admise.
 
 ### Tests précis
 
@@ -744,12 +770,17 @@ pas CORE-01/#61/#106.
 - paint/transform/hit test/interaction, sémantique enfant, recognizer,
   `SelectionArea`, arbre source inchangé et aucun enfant dupliqué ;
 - child sans dry en wet ordinaire ; child non monotone selon le contrat décidé ;
+- child témoin qui lève sur dry layout, dry baseline et les quatre intrinsics :
+  six métriques zéro au wrapper, aucun appel au child, wet/paint/hit/sémantique
+  toujours fonctionnels ;
 - leak tracking, rebuild, retrait de groupe et compteur `P log C`.
 
 ### Acceptation, risques, revue, revert
 
 - **Acceptation :** aucun `WidgetSpan` valide n'exige de dimensions manuelles,
-  métriques identiques au témoin final, cycle de vie et semantics intacts.
+  wet identique au témoin final pour le candidat rendu, métriques dry/intrinsic
+  zéro documentées pour le placeholder arbitraire, aucun crash du child
+  wet-only, cycle de vie et semantics intacts.
 - **Risques :** scale par run faux, baseline, divergence dry/wet, coût caché,
   enfant non monotone, duplication de child.
 - **Reviewer attendu :** second reviewer render/inline indépendant, distinct du
@@ -892,6 +923,9 @@ Ce gate ne permet pas une release : intrinsics et WidgetSpan restent ouverts.
   leur parent, vertes sur la tête ;
 - tests directs intrinsics/dry/baseline, pureté de groupe, replacement,
   selection/semantics, lifecycle et complexité ;
+- tests explicites des divergences admises : texte minimum quand wet choisit la
+  replacement, puis placeholder zéro pour WidgetSpan dry/intrinsic ; aucune
+  consultation des subtrees arbitraires dans ces chemins ;
 - matrice minimum + haute ; benchmark reproductible texte simple et inline ;
 - revue séparée des lots 9 et 10, puis revue du diff cumulé ;
 - aucun type privé Flutter, API manuelle de dimensions ou copie de champ texte.
@@ -921,7 +955,7 @@ n'autorise ni tag, ni push, ni publication, ni fermeture d'issue.
 
 | Finding / issue | Lot qui ferme | Preuve principale |
 |---|---:|---|
-| CORE-01, #61, #106 — `WidgetSpan` | 10 | dimensions automatiques, run scaling, dry/wet, lifecycle |
+| CORE-01, #61, #106 — `WidgetSpan` | 10 | wet automatique, run scaling, fallback dry zéro, lifecycle |
 | CORE-02, #140 — scaling moderne | 3 + 4 + 5 + 10 | scaler composé simple/runs/groupes/placeholders |
 | CORE-03, #104, #119 — configuration effective | 3 + 4 | gras, overrides, strut, wrap, direction/locale, métriques |
 | CORE-04 — RichText/wrapWords | 4 | parent synthétique, runs conservés |
