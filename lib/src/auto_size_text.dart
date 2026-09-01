@@ -4,10 +4,10 @@ part of '../auto_size_text.dart';
 /// bounds.
 ///
 /// All size constraints as well as maxLines are taken into account. If the text
-/// overflows anyway, you should check if the parent widget actually constraints
+/// overflows anyway, check whether the parent widget actually constrains
 /// the size of this widget.
 class AutoSizeText extends StatefulWidget {
-  /// Creates a [AutoSizeText] widget.
+  /// Creates an [AutoSizeText] widget.
   ///
   /// If the [style] argument is null, the text will use the style from the
   /// closest enclosing [DefaultTextStyle].
@@ -40,7 +40,7 @@ class AutoSizeText extends StatefulWidget {
        ),
        textSpan = null;
 
-  /// Creates a [AutoSizeText] widget with a [TextSpan].
+  /// Creates an [AutoSizeText] widget with a [TextSpan].
   const AutoSizeText.rich(
     TextSpan this.textSpan, {
     super.key,
@@ -136,9 +136,9 @@ class AutoSizeText extends StatefulWidget {
 
   /// Synchronizes the size of multiple [AutoSizeText]s.
   ///
-  /// If you want multiple [AutoSizeText]s to have the same text size, give all
-  /// of them the same [AutoSizeGroup] instance. All of them will have the
-  /// size of the smallest [AutoSizeText]
+  /// Give each member the same [AutoSizeGroup] instance. Members synchronize
+  /// to the smallest effective size their individual candidate domains can
+  /// represent. A member can stop at its own minimum or smallest preset.
   final AutoSizeGroup? group;
 
   /// How the text should be aligned horizontally.
@@ -174,8 +174,9 @@ class AutoSizeText extends StatefulWidget {
 
   /// Whether words which don't fit in one line should be wrapped.
   ///
-  /// If false, the fontSize is lowered as far as possible until all words fit
-  /// into a single line.
+  /// If false, the font size is lowered until every whitespace-delimited
+  /// segment fits without an internal line break. Non-breaking spaces remain
+  /// part of their surrounding segment.
   final bool wrapWords;
 
   /// How visual overflow should be handled.

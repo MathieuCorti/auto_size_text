@@ -2,6 +2,7 @@ part of '../auto_size_text.dart';
 
 /// A Flutter widget that provides an [AutoSizeGroup] to its builder function.
 class AutoSizeGroupBuilder extends StatefulWidget {
+  /// Builds a subtree with the stable [AutoSizeGroup] owned by this widget.
   final Widget Function(BuildContext context, AutoSizeGroup autoSizeGroup)
   builder;
 
