@@ -1,159 +1,151 @@
-# Gate Cœur — contre-revue tests, harness et hygiène
+# Gate Cœur — contre-revue finale du harness
 
 Date : 2026-09-01
 
 Base S1 : `e9f75af9c3ef54bee2cbd3fcc0a53b44e7811968`
 
-Base corrective S6 : `b07066ffe321dff059c9d7d8008b2713e30e1aee`
+Base du correctif de harness : `9ec35e9f1481d346c7df5516de618b151de95097`
 
-Tête revue : `9ec35e9f1481d346c7df5516de618b151de95097`
+Tête revue : `37dc11913a905a106d04c8f977971389c95d2cd5`
 
-Périmètre correctif : `b07066f..9ec35e9`, soit six fichiers. La plage
-d'hygiène cumulative contrôlée est `e9f75af..9ec35e9`.
+Commits de reprise relus : `d1c131e`, `c652042` et `37dc119`. Ils sont les
+cherry-picks des commits documentés `8301d7a`, `f4e4576` et de leur journal.
 
 ## Verdict
 
-**BLOCKED pour la clôture de la dette de harness ; PASS pour le correctif
-produit de maintenance du minimum de groupe.**
+**PASS.** Le finding P2 de la contre-revue précédente est résolu. Aucun
+finding P0, P1, P2 ou P3 n'est confirmé dans la reprise du harness, ses tests
+ou son journal. Aucun correctif supplémentaire n'est recommandé.
 
-Aucun finding P0 ou P1 n'est confirmé. Le finding P2 ci-dessous n'affecte pas
-le comportement livré d'`AutoSizeText`, et les preuves cœur antérieures qui
-observent directement `RenderParagraph` restent valides. Il bloque toutefois
-le commit `4883bb0` en tant que réparation complète du harness :
-`doesTextFit(..., wrapWords: false)` continue à produire des verdicts
-contraires au produit, et son nouveau test permanent ne compare jamais le
-helper au produit.
+`renderParagraphFits` est un témoin indépendant utilisable pour décider si le
+`RenderParagraph` final satisfait le même prédicat de fit que le produit. Il
+ne réutilise aucun symbole privé d'`auto_size_text`, ne lit pas l'état du
+`State` produit et ne prend pas un `Text` source non résolu. Les quatre
+régressions permanentes sont rouges avec l'ancien helper sur les deux SDK et
+vertes à la tête. La matrice complète est verte sur le SDK haut, le plancher
+naturel et le plancher downgradé.
 
-La correction `AutoSizeGroup` est conforme à l'oracle. Le parent S6 parcourt
-64 fois 64 rapports pendant la première vague ; la tête ne rescane aucun
-rapport. Les tests permanents tuent les mutants sémantiques de remontée du
-minimum et d'ex aequo. Les probes compteurs tuent les rescans inconditionnels
-à la publication et au retrait d'un non-minimum.
+## Indépendance et absence de tautologie
 
-## Findings
+Le témoin reçoit un vrai `RenderParagraph` obtenu après montage d'un `Text`.
+C'est Flutter, et non le helper ni l'algorithme privé d'`AutoSizeText`, qui a
+donc déjà résolu l'héritage et construit le `InlineSpan` rendu. Le helper ne
+fait appel qu'aux propriétés publiques de `RenderParagraph` et aux API
+publiques `TextPainter`, `TextSelection` et `BoxConstraints`.
 
-### P2 — `doesTextFit(wrapWords: false)` n'est pas un oracle du produit
+Il reproduit dans le harness le prédicat attendu, sans appeler
+`_checkTextFits`, `_EffectiveTextConfiguration`,
+`_UnbreakableTextSnapshot` ni aucune autre déclaration privée du package. La
+segmentation de test est locale et ne partage aucun code avec celle du
+produit. Ce double calcul est nécessaire : la taille publique du render object
+est déjà contrainte et ne suffit pas, seule, à distinguer un texte ajusté d'un
+texte tronqué par les contraintes.
 
-**Fichiers :** `test/utils.dart:18-31`, `test/maxlines_test.dart:62-73`.
+Les attentes ne sont pas dérivées du helper : mot Ahem connu, limites exactes,
+assertion publique et métriques de fixtures donnent les verdicts attendus. La
+preuve rouge est directe : sur `d1c131e`, les quatre tests donnent 0/4 sous
+Flutter 3.41.0 et 3.47.2, avec successivement `true` au lieu de `false`, aucun
+rejet de zéro, un `StateError` de direction et `false` au lieu de `true` pour
+le strut. Sur `c652042`/la tête, les mêmes quatre cas donnent 4/4 sur les deux
+pins.
 
-Le helper remplace `maxLines` par `clamp(1, wordCount)`, puis mesure le texte
-normalement dans la largeur disponible. Le produit suit un autre contrat dans
-`lib/src/auto_size_text.dart:476-600` : il mesure d'abord chaque plage
-indivisible avec un painter non wrappé, conserve ensuite le `maxLines` effectif
-inchangé, et utilise une configuration résolue depuis le contexte. Les deux
-algorithmes ne sont pas équivalents.
+Le test rempli « should allow unlimited lines when maxLines is null » reste
+également discriminant vis-à-vis du rendu final : le mutant de forwarding
+`widget.maxLines ?? 1` réduit sa hauteur à une ligne et le rend rouge. Le test
+du helper à `maxLines: 4` tue séparément la perte du `maxLines` dans son
+`TextPainter`. Les preuves ne confondent donc plus forwarding final et mesure.
 
-Un témoin temporaire, vert à l'identique sur Flutter 3.41.0 et 3.47.2, établit
-quatre divergences indépendantes :
+## Équivalence de `renderParagraphFits`
 
-1. Avec `maxLines == null`, un mot Ahem et une largeur située exactement entre
-   ses largeurs aux candidats 10 et 5, le helper accepte le candidat 10. Le
-   vrai `AutoSizeText(wrapWords: false)` sélectionne 5 ; le
-   `RenderParagraph` final confirme cette taille et garde `maxLines == null`.
-2. Un `Text(maxLines: 0)` est transformé silencieusement en une ligne par le
-   `clamp` et le helper retourne `true`. La surface publique
-   `AutoSizeText(maxLines: 0)` est rejetée par l'assertion
-   `maxLines == null || maxLines > 0` avant calcul. Le helper ne reflète donc
-   pas non plus la précondition publique.
-3. Un `Text` sans direction explicite reçoit un `StateError` du helper, alors
-   que le même widget sous `Directionality` se rend. Avec une direction
-   explicite mais un scaler nul, le helper substitue `noScaling` : il retourne
-   `true` dans le témoin, tandis que le `RenderParagraph` sous le scaler
-   ambiant 2 signale `didExceedMaxLines == true`.
-4. Le helper mesure le `StrutStyle` source sans l'override ambiant de hauteur.
-   Il retourne `false` sous la borne du témoin, tandis que le
-   `RenderParagraph` avec `lineHeightScaleFactorOverride: 0.5` tient sous la
-   même borne et expose bien un strut effectif de hauteur 0,5.
+### Configuration résolue
 
-Le nouveau test permanent à `maxLines: 4` est discriminant contre l'ancienne
-affectation : rétablir seulement `maxLines: text.maxLines` le rend rouge avec
-`Expected: false`, `Actual: true`. Il n'est donc pas tautologique vis-à-vis de
-la ligne modifiée. En revanche, il appelle uniquement le helper avec direction,
-scaler et fonte explicitement fixés ; aucune instance d'`AutoSizeText` ni aucun
-`RenderParagraph` témoin ne participe à son attente. Son résultat `false`
-coïncide avec celui du produit pour ce corpus, mais pour deux raisons
-algorithmiques différentes.
+| Élément du produit | Source du témoin | Résultat |
+|---|---|---|
+| texte et styles/runs | `paragraph.text` | identique au rendu, sans reconstruire le `Text` source |
+| alignement et direction | `textAlign`, `textDirection` | valeurs effectives non nulles |
+| scaler | `textScaler` | scaler explicite ou ambiant déjà résolu, y compris non linéaire |
+| maximum de lignes | `maxLines` | `null` conservé, valeur finie transmise inchangée |
+| ellipsis/overflow | `overflow` puis `\u2026` | même règle que le produit |
+| locale | `locale` | locale explicite ou héritée résolue par Flutter |
+| strut | `strutStyle` | strut effectif, override ambiant de hauteur compris |
+| largeur/hauteur de texte | `textWidthBasis`, `textHeightBehavior` | valeurs effectives transmises |
+| politique de wrap | `softWrap`, `overflow` | largeur finie pour wrap/ellipsis, infinie sinon |
+| contraintes | `paragraph.constraints` | `minWidth`, `maxWidth`, `maxHeight` et `constrain` identiques |
 
-**Impact.** Aucun test fonctionnel cœur actuel ne prend une décision produit à
-partir de `doesTextFit(..., false)` : le seul appel est ce test du helper
-lui-même. Il n'y a donc pas de régression runtime ni d'invalidation des tests
-RichText/wrapping existants. En revanche, toute réutilisation future du helper
-comme oracle de `wrapWords: false` peut accepter un candidat refusé par le
-produit, refuser un rendu valide, ou contourner la précondition de `maxLines`.
-Le journal ne doit pas présenter cette dette comme close.
+Le painter principal appelle `layout` avec le même `minWidth` et le même
+`layoutMaxWidth` que le produit. Il compare ensuite la taille de texte non
+contrainte à `constraints.constrain(textSize)` et à
+`didExceedMaxLines`. Les bornes de largeur et hauteur, y compris une hauteur
+infinie, ont donc le même sens. Le probe temporaire distingue aussi
+`softWrap:false` : forcer toujours `constraints.maxWidth` rend le cas clip
+rouge avec `true` au lieu de `false`.
 
-**Correction attendue.** Préférer un oracle black-box qui observe la sélection
-ou le remplacement d'un vrai `AutoSizeText` et son `RenderParagraph`. Si le
-helper est conservé, il doit recevoir une configuration déjà résolue, valider
-`maxLines`, mesurer les plages indivisibles sans aplatir les runs, puis passer
-le `maxLines` original au painter principal. Les cas `null`, zéro rejeté,
-direction/scaler/strut ambiants et une borne finie doivent être permanents.
+`TextWidthBasis` et `TextHeightBehavior` sont lus sur le render object, pas sur
+le widget source. Les fixtures métriques existantes confirment direction,
+locale, largeur de base et hauteur ; un probe dédié choisit une borne entre
+les hauteurs normale et compacte et une borne entre les glyphes arabes et
+farsi. Omettre la locale donne `true` au lieu de `false`; omettre le
+`TextHeightBehavior` donne `false` au lieu de `true`.
 
-## Force du test `maxLines == null`
+### `wrapWords:false`, UTF-16 et espaces insécables
 
-Le test rempli de `test/maxlines_test.dart:39-60` n'est pas entièrement
-tautologique. Un mutant temporaire qui force `widget.maxLines ?? 1` sur le
-`Text` final devient rouge : hauteur attendue supérieure à 20, hauteur réelle
-20. Il protège donc la propagation de la limite illimitée vers le rendu.
+Le painter auxiliaire conserve le `InlineSpan` complet du paragraphe et est
+mis en page à largeur infinie. Seule la chaîne visuelle
+`toPlainText(includeSemanticsLabels: false)` sert à déterminer les offsets ;
+les largeurs viennent des boîtes du span original, de sorte que styles, runs
+et boîtes bidi ne sont pas aplatis.
 
-Sa portée est néanmoins plus étroite que son nom peut le suggérer. Le preset
-singleton `[20]`, l'absence d'`overflowReplacement` et l'absence d'assertion
-sur la taille candidate rendent le résultat indépendant du verdict de fit.
-Un mutant qui force seulement `configuration.maxLines ?? 1` dans le painter de
-mesure laisse les trois tests de `maxlines_test.dart` verts. Le test démontre
-donc le rendu multi-ligne final, pas la prise en compte de `null` pendant la
-recherche de taille. Cette limite n'ajoute pas un second finding bloquant,
-mais elle doit être conservée dans l'interprétation de la preuve.
+Les offsets `RegExpMatch.start/end` et `TextSelection` sont des offsets UTF-16
+dans une chaîne Dart. L'expression exclut les séparateurs `\s`, sauf U+00A0
+NBSP et U+202F NNBSP explicitement réintégrés à la plage. Elle ignore donc les
+plages vides autour de séparateurs consécutifs et conserve les espaces
+insécables à l'intérieur du run, comme le scanner du produit.
 
-## Revue des tests de minimum de groupe
+Un probe temporaire utilise `A😀\u00A0A B` et choisit une largeur strictement
+entre la sélection UTF-16 `0..4` et la plage correcte `0..5`. La tête refuse
+le texte sur les deux SDK. Traiter NBSP comme un séparateur ou retrancher une
+unité à l'endpoint produit `true` au lieu de `false`. Le même probe accepte le
+corpus avec espace ordinaire.
 
-`test/group_minimum_maintenance_test.dart` utilise uniquement la surface
-publique : `AutoSizeGroup`, `AutoSizeText`, clés stables, presets singleton et
-lecture du `Text` rendu. Il n'accède à aucun membre privé et ne dépend d'aucun
-chronomètre. Deux `pump` bornés laissent les microtâches et frames converger ;
-aucun `pumpAndSettle`, timeout ou attente murale n'est introduit.
+### `maxLines` et cycle de vie
 
-Les scénarios permanents couvrent bien :
+- `maxLines == null` reste illimité dans le painter principal ; le painter de
+  plages est toujours illimité, conformément au produit.
+- une valeur finie est transmise sans clamp ; le cas permanent à quatre lignes
+  devient rouge si elle est supprimée ;
+- `maxLines == 0` ne peut pas produire de `RenderParagraph` valide : le test
+  monte le vrai widget et observe l'`AssertionError` public, au lieu de laisser
+  un helper source normaliser zéro.
 
-- premières vagues ascendante et descendante ;
-- baisse sous le minimum ;
-- stockage de la hausse d'un non-minimum puis sa révélation après retraits ;
-- remontée du détenteur du minimum ;
-- ex aequo survivant ;
-- retrait d'un minimum et d'un non-minimum ;
-- retrait du dernier membre fini, retour à l'infini et nouvelle publication.
+Les deux painters sont possédés localement et chacun est entouré d'un
+`try/finally`. Le painter auxiliaire est libéré lors du retour anticipé et des
+exceptions ; le principal l'est après fit, overflow ou exception. Le test
+permanent de lifecycle suit le painter principal avec leak tracking. Un probe
+leak-tracking temporaire supplémentaire a couvert le retour anticipé du
+painter de plages et le chemin `wrapWords:false` qui utilise les deux painters :
+2/2 sur chacun des SDK.
 
-Les textes vides et presets singleton isolent volontairement le rapport de
-groupe des métriques de paragraphe. L'oracle lit la taille effective publique
-du `Text` et compare des valeurs attendues indépendantes ; il ne recalcule pas
-le minimum avec l'algorithme produit.
+## Mutants et probes
 
-Mutants rejoués dans une extraction temporaire 3.47.2 :
+Tous les mutants ont été appliqués séparément dans une extraction temporaire,
+puis abandonnés.
 
-| Mutant | Rouge observé |
+| Mutant temporaire | Signal rouge observé |
 |---|---|
-| ne pas rescanner lorsque l'ancien minimum remonte | attendu `[30,30,30]`, obtenu `[20,20,20]` |
-| remplacer directement `G` par la nouvelle valeur | attendu `[30,30,30]`, obtenu `[40,30,40]`; le cas tie obtient `[30,20,30,30]` |
-| rescanner au retrait de tout rapport fini | probe retrait : attendu 0 appel, obtenu 1 |
-| rescan inconditionnel à chaque publication, parent S6 exact | première vague : 64 appels et 4 096 visites au lieu de 0/0 |
+| ne pas transmettre `RenderParagraph.maxLines` | `false` attendu, `true` obtenu dans `maxlines_test.dart` |
+| supprimer la mesure des plages indivisibles | `false` attendu, `true` obtenu avec le mot Ahem illimité |
+| remplacer le scaler résolu par `noScaling` | `false` attendu, `true` obtenu |
+| omettre le strut effectif | borne serrée : `false` attendu, `true` obtenu |
+| traiter NBSP comme séparateur | `false` attendu, `true` obtenu |
+| tronquer l'endpoint UTF-16 d'une unité | `false` attendu, `true` obtenu |
+| omettre la locale | farsi : `false` attendu, `true` obtenu |
+| omettre `TextHeightBehavior` | hauteur compacte : `true` attendu, `false` obtenu |
+| contraindre toujours la largeur malgré `softWrap:false` | `false` attendu, `true` obtenu |
 
-Après restauration, la tête donne 0 appel et 0 visite sur la première vague et
-sur le retrait d'un non-minimum. Le probe n'utilise que 64 `AutoSizeText`
-publics dans un `Stack`; les compteurs instrumentent temporairement l'appel et
-la boucle, sans temps mural. Aucun compteur ou probe ne reste dans la branche
-canonique.
-
-## Rouge parent et vert tête
-
-| Preuve | Parent/mutant | Tête |
-|---|---:|---:|
-| affectation du `maxLines` calculé dans le helper | rouge, `false` attendu / `true` obtenu | `maxlines_test.dart` 3/3 |
-| complexité première vague, S6 exact | rouge, 64 appels / 4 096 visites | vert, 0/0 |
-| suites groupe et lifecycle ciblées | mutants sémantiques rouges | 36/36 sur les deux pins |
-| suite canonique complète | non applicable | 121/121 sur les deux pins et sur le graphe minimum downgradé |
-
-La preuve du helper confirme la correction mécanique de l'affectation, mais
-pas son exactitude sémantique ; c'est précisément l'objet du finding P2.
+Le probe élargi, sans accès privé, couvre trois groupes : UTF-16/NBSP et
+espace ordinaire ; `maxLines` null/fini et `softWrap:false` ; locale et
+`TextHeightBehavior`. Il donne 3/3 sur Flutter 3.41.0 et 3.47.2. Aucun fichier
+de probe ou mutant ne reste dans le worktree canonique.
 
 ## Matrice indépendante
 
@@ -164,65 +156,65 @@ Toolchains réellement exécutées :
 
 | Contrôle | 3.47.2 | 3.41.0 naturel | 3.41.0 downgradé |
 |---|---:|---:|---:|
-| résolution hors ligne | PASS | PASS | PASS, 9 dépendances abaissées |
-| format haute `lib test example` après résolution | 27 fichiers, 0 changement | non autoritatif | non autoritatif |
+| résolution racine hors ligne | PASS | PASS | PASS, 9 dépendances abaissées |
+| résolution/analyse exemple | PASS | PASS | PASS, 1 dépendance abaissée |
+| format `lib test example/main.dart` | 28 fichiers, 0 changement | non autoritatif | non autoritatif |
 | analyse fatale `lib test example/main.dart` | PASS | PASS | PASS |
-| ciblés maxLines, groupes et lifecycle | 36/36 | 36/36 | 36/36 |
-| suite canonique complète | 121/121 | 121/121 | 121/121 |
-| témoin temporaire helper/RenderParagraph | 4/4 | 4/4 | non rejoué après downgrade |
-| probe compteur première vague | 0/0 | journal recoupé par les suites | non requis |
+| analyse fatale du package exemple | PASS | PASS | PASS |
+| quatre reproductions à la tête | 4/4 | 4/4 | incluses ci-dessous |
+| ciblés helper, config effective, wrap et lifecycle | 45/45 | 45/45 | 45/45 |
+| suite complète canonique | 125/125 | 125/125 | 125/125 |
+| probe UTF-16/config/contraintes | 3/3 | 3/3 | non requis |
+| probe leak-tracking des deux chemins helper | 2/2 | 2/2 | non requis |
 
-Le `pub get` minimum a adapté le lock de l'exemple uniquement dans
-l'extraction temporaire (`meta 1.17.0`, `vector_math 2.2.0`). Le downgrade a
-ensuite conservé ce graphe exemple naturel. Le lock canonique n'a pas été
-touché et garde le SHA-256
-`115848ebae231fd23d59e6f2d5945b59016605d8b14fb4b7f23de2ad8916b1f7`.
+Le rouge `d1c131e` a été rejoué séparément : 0/4 sur chacun des deux SDK. Le
+graphe minimum abaissé et tous les probes ont été confinés à des archives
+temporaires.
 
-## Hygiène de plage
+## Tests, API et hygiène
 
-- `git diff --check e9f75af..9ec35e9` : PASS ;
-- `git diff --check e9f75af...9ec35e9` : PASS ;
-- 53 fichiers sur la plage S1→tête, aucun sous `demo/` ou `example/`, aucun
-  lock ;
-- six fichiers seulement sur S6→tête, conformément au journal ;
-- format autoritatif exécuté après résolution haute, zéro changement ;
-- aucun changement d'API publique, de fixture binaire, de démo ou de lock dans
-  la sous-plage corrective ;
-- aucun probe, mutant, compteur ou cache créé dans le worktree canonique ;
-- avant ce rapport, `git diff -- lib test example`, la liste des fichiers non
-  suivis et `git status --short` étaient vides.
+Les nouveaux tests sont des widget tests déterministes. Ils n'utilisent ni
+temps mural, ni `Future.delayed`, ni `pumpAndSettle`, ni timeout, ni accès
+privé, ni `dynamic` pour contourner l'API. Ils montent de vrais widgets, lisent
+un `RenderParagraph` public et utilisent des bornes fixes ou des fixtures
+métriques. Le test zéro observe l'assertion publique. Aucun test n'appelle le
+helper pour recalculer sa propre valeur attendue.
 
-## Fichiers lus et audit pré-conclusion
+- `git diff --check e9f75af..37dc119` : PASS ;
+- `git diff --check e9f75af...37dc119` : PASS ;
+- 55 fichiers sur S1→tête avant ce rapport, aucun sous `demo/` ou `example/`,
+  aucun lock ;
+- six fichiers fonctionnels/documentaires dans les trois cherry-picks de
+  reprise, plus le présent rapport de review déjà antérieur dans la lignée ;
+- `example/pubspec.lock` reste byte-identique, SHA-256
+  `115848ebae231fd23d59e6f2d5945b59016605d8b14fb4b7f23de2ad8916b1f7` ;
+- aucun changement de démo, d'API publique, de fixture ou de lock ;
+- le format autoritatif a été exécuté après résolution haute, sans diff ;
+- aucun merge, push, tag ou publication n'a été effectué.
 
-Fichiers de la sous-plage corrective lus intégralement, état final et diff :
+## Audit pré-conclusion
 
-1. `lib/src/auto_size_group.dart` ;
-2. `maintenance/decisions/candidate-domain-oracle.md` ;
-3. `maintenance/implementation/gate-core-fixes.md` ;
-4. `test/group_minimum_maintenance_test.dart` ;
-5. `test/maxlines_test.dart` ;
+Fichiers du delta relus intégralement, état final et diff :
+
+1. `maintenance/implementation/gate-core-fixes.md` ;
+2. `test/maxlines_test.dart` ;
+3. `test/preset_font_sizes_test.dart` ;
+4. `test/text_fit_oracle_test.dart` ;
+5. `test/text_painter_lifecycle_test.dart` ;
 6. `test/utils.dart`.
 
-Contexte relu : `lib/src/auto_size_text.dart` intégralement, les primitives de
-plages/candidats pertinentes dans `lib/src/auto_size_text_layout.dart`, les
-tests `wrap_words`, lifecycle et configuration effective concernés, les trois
-rapports Gate Cœur antérieurs et les sections S1/Gate Cœur de la roadmap. Les
-instructions `find-bugs`, `developing-flutter` et toutes ses références ont été
-lues intégralement. Aucun `AGENTS.md` additionnel n'existe dans le worktree ;
-l'instruction PostHog fournie au chantier n'est pas applicable à cette revue
-locale.
+Contexte relu : `lib/src/auto_size_text.dart`, les primitives de plages dans
+`lib/src/auto_size_text_layout.dart`, `test/wrap_words_test.dart`,
+`test/effective_text_configuration_test.dart`, le rapport précédent et les
+instructions `find-bugs`, `developing-flutter`, Effective Dart et testing.
+Aucun `AGENTS.md` additionnel n'existe dans le worktree ; l'instruction
+PostHog fournie au chantier n'est pas applicable à cette revue locale.
 
-Checklist `find-bugs` : injection, XSS, authentification, autorisation/IDOR,
-CSRF, session, cryptographie, secrets et divulgation sont hors surface ; le
-delta ne contient ni réseau, ni base, ni entrée distante, ni template, ni
-identité. Les catégories applicables ont été contrôlées : course et cycle de
-vie des microtâches, disponibilité, opérations bornées, validations numériques
-et logique d'état. Aucun défaut de course, fuite, timeout ou disponibilité ne
-subsiste dans le correctif groupe. Le seul défaut confirmé est la logique
-d'oracle du helper de test décrite ci-dessus.
-
-Limites : aucun test appareil, web ou release sans assertions n'a été exécuté.
-Ces surfaces ne sont pas nécessaires pour confirmer le finding de harness ni
-les compteurs déterministes du groupe.
-
-Le commit de cette contre-revue doit contenir uniquement le présent rapport.
+Checklist `find-bugs` : injection, XSS, authentification,
+autorisation/IDOR, CSRF, session, cryptographie, secrets et divulgation sont
+hors surface ; le delta ne contient ni entrée distante, ni réseau, ni base,
+ni template, ni identité. Les catégories applicables ont été vérifiées :
+logique métier, limites numériques, disponibilité, opérations bornées,
+exceptions, ownership des painters, courses et cycle de vie du render tree.
+Aucun problème n'est confirmé. Aucune zone du périmètre demandé n'est restée
+non vérifiée.
