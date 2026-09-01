@@ -252,9 +252,6 @@ class _AutoSizeTextState extends State<AutoSizeText> {
         final maxLines = widget.maxLines ?? defaultTextStyle.maxLines;
 
         _validateCandidateInputs(
-          minFontSize: widget.minFontSize,
-          maxFontSize: widget.maxFontSize,
-          stepGranularity: widget.stepGranularity,
           referenceFontSize: style.fontSize!,
           textScaleFactor: widget.textScaleFactor,
         );
@@ -326,6 +323,12 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       return _CandidateSet.presets(presetFontSizes);
     }
 
+    _validateRegularCandidateInputs(
+      minFontSize: widget.minFontSize,
+      maxFontSize: widget.maxFontSize,
+      stepGranularity: widget.stepGranularity,
+    );
+
     final upper = referenceFontSize
         .clamp(widget.minFontSize, widget.maxFontSize)
         .toDouble();
@@ -357,13 +360,14 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       final scale = referenceFontSize == 0 && widget.data != null
           ? 0.0
           : candidate * userScale / referenceFontSize;
+      _requireFiniteNonNegative(scale, 'calculatedTextScaleFactor');
       return _checkTextFits(span, scale, maxLines, size);
     });
 
-    return <Object>[
-      _canonicalCandidateZero(result.value * userScale),
-      result.fits,
-    ];
+    final effectiveFontSize = result.value * userScale;
+    _requireFiniteNonNegative(effectiveFontSize, 'calculatedFontSize');
+
+    return <Object>[_canonicalCandidateZero(effectiveFontSize), result.fits];
   }
 
   bool _checkTextFits(

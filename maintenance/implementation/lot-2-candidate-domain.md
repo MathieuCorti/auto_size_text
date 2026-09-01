@@ -18,11 +18,12 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
   `8 * 2^-52 * max(1, abs(a), abs(b))` ;
 - dichotomie par indices qui renvoie le plus grand candidat qui tient, ou le
   plus petit candidat avec `fits == false` si aucun ne tient ;
-- snapshot des presets, validation dans l'ordre descendant, déduplication des
-  voisins exacts ou quasi égaux et stockage ascendant non modifiable, sans tri
-  ni mutation de la liste appelante ;
-- validations runtime par `ArgumentError` de min/max/pas/référence, ancien
-  `textScaleFactor` et presets ;
+- snapshot des presets, validation de l'ordre exact non croissant avant toute
+  tolérance, déduplication des voisins exacts ou quasi égaux et stockage
+  ascendant non modifiable, sans tri ni mutation de la liste appelante ;
+- validations runtime par `ArgumentError` de min/max/pas pour la grille
+  régulière, et de la référence, de l'ancien `textScaleFactor`, des valeurs
+  calculées et des presets pour les deux modes ;
 - acceptation et canonisation de `-0.0` en `0.0` pour les entrées qui admettent
   zéro ;
 - conservation des assertions de construction existantes seulement comme
@@ -83,7 +84,7 @@ l'implémentation :
   test/text_fits_test.dart
 ```
 
-Résultat : code 1, 12 tests passés et 15 échecs. Les causes attendues sont
+Résultat : code 1, 13 tests passés et 15 échecs. Les causes attendues sont
 distinctes et visibles dans les sorties :
 
 - `0.3/0.1`, `16.3/1` et les plages `12/5` non multiples échouent sur les
@@ -102,6 +103,33 @@ Les contrôles de conservation déjà vrais sur S2 — résultats historiques,
 presets descendants immuables et compteur logarithmique — sont des gates de
 non-régression ; ils ne sont pas présentés comme des preuves rouges artificielles.
 
+## Correctifs après revue finale
+
+La revue `3cf3d13` a demandé trois corrections P1. Trois régressions publiques
+permanentes, nommées `should…`, ont d'abord été exécutées isolément sur la tête
+d'implémentation `9eb90b406565f50f75ae1d7f99e4b2b7d0a5c8ec`. Elles étaient
+toutes rouges pour leur cause propre :
+
+- les deux constructeurs avec presets et paramètres de grille ignorés
+  (`min=-1`, `max=0`, `step=0`) recevaient encore un `ArgumentError` sur le
+  minimum ;
+- les remontées exactes d'un ULP, notamment
+  `[20, 20.000000000000004, 10]`, étaient absorbées par la tolérance et
+  acceptées ;
+- `textScaleFactor=double.maxFinite` multiplié par une taille non nulle
+  atteignait Flutter et produisait cinq assertions de rendu au lieu d'un
+  `ArgumentError` applicatif.
+
+Après correction, les trois tests isolés passent. La validation min/max/pas
+est désormais strictement propre au mode grille ; référence, facteur explicite
+et presets restent validés dans tous les modes où ils s'appliquent. Les presets
+sont d'abord vérifiés paire par paire dans leur ordre source exact, puis
+seulement dédupliqués avec la tolérance. Enfin, chaque facteur de layout et
+chaque taille effective calculés sont contrôlés avant d'être transmis à
+Flutter. Le test du débordement couvre séparément le facteur non fini et la
+taille effective non finie avec référence zéro, puis conserve un cas de produit
+fini historique.
+
 ## Preuves vertes
 
 Toolchains exactes :
@@ -118,8 +146,9 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 | format `lib test example`, puis contrôle `--output=none --set-exit-if-changed` | 22 fichiers, 0 changement au contrôle final |
 | analyse scoped `lib test example/main.dart` | exactement les 9 informations historiques `deprecated_member_use`, 0 warning, 0 erreur, aucune information nouvelle |
 | exemple : `pub get --enforce-lockfile`, puis analyse fatale `--no-pub` | succès, lock canonique haut inchangé, aucun diagnostic |
-| quatre suites ciblées du lot | 28/28 |
-| suite racine complète | 53/53, dont les 8 tests de cycle de vie/leak du lot 1 |
+| quatre suites ciblées du lot | 31/31 |
+| suite racine complète | 56/56 |
+| tests explicites de cycle de vie/leak | 9/9 |
 
 ### Flutter 3.41.0
 
@@ -132,9 +161,10 @@ exemple et sans répertoire généré, conformément à la politique du lot 0.
 | `flutter pub get --no-example` | succès, 26 dépendances résolues naturellement |
 | analyse scoped `lib test example/main.dart` | les mêmes 9 informations historiques, 0 warning, 0 erreur |
 | exemple sans lock : `flutter pub get`, puis analyse fatale `--no-pub` | succès, 10 dépendances, `meta 1.17.0`, `vector_math 2.2.0`, aucun diagnostic |
-| quatre suites ciblées du lot | 28/28 |
-| suite racine complète | 53/53 |
-| `flutter pub downgrade --no-example`, puis suite `--no-pub` | 9 dépendances abaissées ; 53/53 |
+| quatre suites ciblées du lot | 31/31 |
+| suite racine complète | 56/56 |
+| tests explicites de cycle de vie/leak | 9/9 |
+| `flutter pub downgrade --no-example`, puis suite `--no-pub` | 9 dépendances abaissées ; 56/56 |
 
 Les tests invalides appellent l'API publique et exigent le type
 `ArgumentError`. La validation runtime s'exécute avant les assertions
@@ -150,6 +180,12 @@ complémentaires ; leur preuve ne dépend donc pas d'un `AssertionError` actif.
   représentés de façon portable sont rejetés ;
 - les presets doivent être non vides, finis, non négatifs et non croissants ;
   les doublons/quasi-doublons adjacents restent acceptés et sont dédupliqués ;
+- en mode presets, min/max/pas sont réellement ignorés et ne sont ni validés
+  ni assertés ;
+- une hausse exacte de preset est rejetée avant toute tolérance, même si elle
+  ne représente qu'un ULP ;
+- un facteur de layout ou une taille effective calculés non finis sont rejetés
+  par `ArgumentError` avant Flutter ;
 - les anciennes entrées non multiples du pas deviennent valides, car le pas
   est désormais relatif au minimum plutôt qu'à zéro.
 

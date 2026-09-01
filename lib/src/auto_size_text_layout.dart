@@ -17,14 +17,22 @@ bool _candidatesAreNearlyEqual(double first, double second) {
 }
 
 void _validateCandidateInputs({
-  required double minFontSize,
-  required double maxFontSize,
-  required double stepGranularity,
   required double referenceFontSize,
   required double? textScaleFactor,
 }) {
-  _requireFiniteNonNegative(minFontSize, 'minFontSize');
   _requireFiniteNonNegative(referenceFontSize, 'style.fontSize');
+
+  if (textScaleFactor != null) {
+    _requireFiniteNonNegative(textScaleFactor, 'textScaleFactor');
+  }
+}
+
+void _validateRegularCandidateInputs({
+  required double minFontSize,
+  required double maxFontSize,
+  required double stepGranularity,
+}) {
+  _requireFiniteNonNegative(minFontSize, 'minFontSize');
   _requireFiniteNonNegative(stepGranularity, 'stepGranularity');
   if (stepGranularity < 0.1) {
     throw ArgumentError.value(
@@ -48,10 +56,6 @@ void _validateCandidateInputs({
       'maxFontSize',
       'must be greater than or equal to minFontSize',
     );
-  }
-
-  if (textScaleFactor != null) {
-    _requireFiniteNonNegative(textScaleFactor, 'textScaleFactor');
   }
 }
 
@@ -213,24 +217,28 @@ final class _CandidateSet {
       );
     }
 
-    final uniqueDescending = <double>[];
+    final canonicalDescending = <double>[];
+    double? previous;
     for (final originalValue in snapshot) {
       _requireFiniteNonNegative(originalValue, 'presetFontSizes');
       final value = _canonicalCandidateZero(originalValue);
-      if (uniqueDescending.isNotEmpty) {
-        final previous = uniqueDescending.last;
-        if (value > previous && !_candidatesAreNearlyEqual(value, previous)) {
-          throw ArgumentError.value(
-            presetFontSizes,
-            'presetFontSizes',
-            'must be in non-increasing order',
-          );
-        }
-        if (_candidatesAreNearlyEqual(value, previous)) {
-          continue;
-        }
+      if (previous != null && value > previous) {
+        throw ArgumentError.value(
+          presetFontSizes,
+          'presetFontSizes',
+          'must be in non-increasing order',
+        );
       }
-      uniqueDescending.add(value);
+      canonicalDescending.add(value);
+      previous = value;
+    }
+
+    final uniqueDescending = <double>[];
+    for (final value in canonicalDescending) {
+      if (uniqueDescending.isEmpty ||
+          !_candidatesAreNearlyEqual(value, uniqueDescending.last)) {
+        uniqueDescending.add(value);
+      }
     }
 
     final ascending = List<double>.unmodifiable(uniqueDescending.reversed);

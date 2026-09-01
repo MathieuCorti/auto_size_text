@@ -92,6 +92,34 @@ void main() {
       expect(presets, orderedEquals(<double>[40, 20, 0]));
     });
 
+    testWidgets(
+      'should ignore regular grid parameters for both preset constructors',
+      (tester) async {
+        final widgets = <AutoSizeText>[
+          const AutoSizeText(
+            '',
+            minFontSize: -1,
+            maxFontSize: 0,
+            stepGranularity: 0,
+            presetFontSizes: <double>[20, 10],
+          ),
+          const AutoSizeText.rich(
+            TextSpan(text: ''),
+            minFontSize: -1,
+            maxFontSize: 0,
+            stepGranularity: 0,
+            presetFontSizes: <double>[20, 10],
+          ),
+        ];
+
+        for (final widget in widgets) {
+          await pump(tester: tester, widget: widget);
+          expect(tester.takeException(), isNull);
+          expect(find.byType(Text), findsOneWidget);
+        }
+      },
+    );
+
     testWidgets('should select the largest preset that actually fits', (
       tester,
     ) async {
@@ -123,6 +151,18 @@ void main() {
         widget: const AutoSizeText('', presetFontSizes: presets),
       );
     });
+
+    testWidgets(
+      'should reject exact preset increases before near-equal deduplication',
+      (tester) async {
+        for (final presets in <List<double>>[
+          <double>[20, 20.000000000000004, 10],
+          <double>[20, 19.999999999999996, 20, 10],
+        ]) {
+          await _expectArgumentError(tester, presets);
+        }
+      },
+    );
 
     testWidgets('should reject invalid preset lists at runtime', (
       tester,

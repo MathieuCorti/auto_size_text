@@ -127,6 +127,38 @@ void main() {
       }
     });
 
+    testWidgets(
+      'should reject a non-finite calculated scale before text layout',
+      (tester) async {
+        await _expectArgumentError(
+          tester,
+          const AutoSizeText(
+            'AutoSizeText Test',
+            style: TextStyle(fontSize: 20),
+            textScaleFactor: double.maxFinite,
+          ),
+        );
+        await _expectArgumentError(
+          tester,
+          const AutoSizeText(
+            'AutoSizeText Test',
+            style: TextStyle(fontSize: 0),
+            textScaleFactor: double.maxFinite,
+          ),
+        );
+
+        await pumpAndExpectFontSize(
+          tester: tester,
+          expectedFontSize: 40,
+          widget: const AutoSizeText(
+            '',
+            style: TextStyle(fontSize: 20),
+            textScaleFactor: 2,
+          ),
+        );
+      },
+    );
+
     testWidgets('should accept zero lower inputs and an infinite maximum', (
       tester,
     ) async {
