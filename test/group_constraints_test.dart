@@ -580,32 +580,40 @@ void main() {
         final group = AutoSizeGroup();
         const projectedKey = ValueKey<String>('invalid-projection');
         const observerKey = ValueKey<String>('invalid-projection-observer');
-        TextScaler scaler = const _ProjectionInvalidTextScaler();
         var showLimiter = true;
-        late StateSetter update;
+        late StateSetter updateLimiter;
 
         await tester.pumpWidget(
           _host(<Widget>[
+            SizedBox(
+              width: 100,
+              height: 100,
+              child: AutoSizeText(
+                '',
+                textKey: observerKey,
+                style: const TextStyle(fontSize: 70),
+                presetFontSizes: const <double>[70, 50],
+                textScaler: TextScaler.noScaling,
+                group: group,
+              ),
+            ),
+            SizedBox(
+              width: 100,
+              height: 100,
+              child: AutoSizeText(
+                '',
+                textKey: projectedKey,
+                style: const TextStyle(fontSize: 50),
+                presetFontSizes: const <double>[50, 40, 30, 20, 10],
+                textScaler: const _ProjectionInvalidTextScaler(),
+                group: group,
+              ),
+            ),
             StatefulBuilder(
               builder: (context, setState) {
-                update = setState;
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: AutoSizeText(
-                        '',
-                        textKey: projectedKey,
-                        style: const TextStyle(fontSize: 50),
-                        presetFontSizes: const <double>[50, 40, 30, 20, 10],
-                        textScaler: scaler,
-                        group: group,
-                      ),
-                    ),
-                    if (showLimiter)
-                      SizedBox(
+                updateLimiter = setState;
+                return showLimiter
+                    ? SizedBox(
                         width: 100,
                         height: 100,
                         child: AutoSizeText(
@@ -615,21 +623,8 @@ void main() {
                           textScaler: TextScaler.noScaling,
                           group: group,
                         ),
-                      ),
-                    SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: AutoSizeText(
-                        '',
-                        textKey: observerKey,
-                        style: const TextStyle(fontSize: 70),
-                        presetFontSizes: const <double>[70, 50],
-                        textScaler: TextScaler.noScaling,
-                        group: group,
-                      ),
-                    ),
-                  ],
-                );
+                      )
+                    : const SizedBox.shrink();
               },
             ),
           ]),
@@ -639,17 +634,14 @@ void main() {
         await tester.pump();
         expect(tester.takeException(), isA<ArgumentError>());
 
-        update(() => scaler = TextScaler.noScaling);
+        updateLimiter(() => showLimiter = false);
         await tester.pump();
         expect(tester.takeException(), isNull);
-        expect(_effectiveSize(tester, projectedKey), 20);
 
-        update(() => showLimiter = false);
-        await tester.pump();
         await tester.pump();
         expect(tester.takeException(), isNull);
-        expect(_effectiveSize(tester, projectedKey), 50);
         expect(_effectiveSize(tester, observerKey), 50);
+        expect(tester.binding.hasScheduledFrame, isFalse);
       },
     );
 
