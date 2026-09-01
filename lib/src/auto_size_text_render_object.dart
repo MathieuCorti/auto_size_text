@@ -46,6 +46,10 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
   _AutoSizeTextRenderElement(_AutoSizeTextRenderWidget super.widget);
 
   Element? _child;
+  Element? _measurementChild;
+  RenderBox? _primaryRenderBox;
+  RenderBox? _measurementRenderBox;
+  bool _primaryIsParagraph = false;
 
   @override
   _RenderAutoSizeText get renderObject =>
@@ -57,12 +61,24 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
     if (child != null) {
       visitor(child);
     }
+    final measurementChild = _measurementChild;
+    if (measurementChild != null) {
+      visitor(measurementChild);
+    }
   }
 
   @override
   void forgetChild(Element child) {
-    assert(child == _child);
-    _child = null;
+    if (child == _child) {
+      _child = null;
+      _primaryRenderBox = null;
+      _primaryIsParagraph = false;
+    } else if (child == _measurementChild) {
+      _measurementChild = null;
+      _measurementRenderBox = null;
+    } else {
+      assert(false, 'Forgot an unknown AutoSizeText child.');
+    }
     super.forgetChild(child);
   }
 
@@ -96,28 +112,107 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
   void _rebuildChild(_AutoSizeTextSelection selection) {
     owner!.buildScope(this, () {
       final renderWidget = widget as _AutoSizeTextRenderWidget;
-      _child = updateChild(_child, renderWidget.childFor(selection), null);
+      final keepsReplacement =
+          renderWidget.overflowReplacement != null && !selection.localFits;
+      final nextWidget = renderWidget.childFor(selection);
+
+      if (keepsReplacement && _child != null && !_primaryIsParagraph) {
+        _measurementChild = updateChild(
+          _measurementChild,
+          null,
+          _AutoSizeTextChildSlot.measurement,
+        );
+        _child = updateChild(
+          _child,
+          nextWidget,
+          _AutoSizeTextChildSlot.primary,
+        );
+        _activate(_primaryRenderBox);
+        return;
+      }
+
+      if (!keepsReplacement &&
+          _child != null &&
+          !_primaryIsParagraph &&
+          _measurementChild != null) {
+        final promoted = _measurementChild;
+        _child = updateChild(_child, null, _AutoSizeTextChildSlot.primary);
+        _measurementChild = null;
+        _child = updateChild(
+          promoted,
+          nextWidget,
+          _AutoSizeTextChildSlot.primary,
+        );
+        _primaryIsParagraph = true;
+        _activate(_primaryRenderBox);
+        return;
+      }
+
+      _measurementChild = updateChild(
+        _measurementChild,
+        null,
+        _AutoSizeTextChildSlot.measurement,
+      );
+      _child = updateChild(_child, nextWidget, _AutoSizeTextChildSlot.primary);
+      _primaryIsParagraph = !keepsReplacement;
+      _activate(_primaryRenderBox);
     });
   }
 
   void _rebuildParagraph(double candidate) {
     owner!.buildScope(this, () {
       final renderWidget = widget as _AutoSizeTextRenderWidget;
-      _child = updateChild(_child, renderWidget.paragraphFor(candidate), null);
+      final paragraph = renderWidget.paragraphFor(candidate);
+      if (_child == null || _primaryIsParagraph) {
+        _measurementChild = updateChild(
+          _measurementChild,
+          null,
+          _AutoSizeTextChildSlot.measurement,
+        );
+        _child = updateChild(_child, paragraph, _AutoSizeTextChildSlot.primary);
+        _primaryIsParagraph = true;
+        _activate(_primaryRenderBox);
+      } else {
+        _measurementChild = updateChild(
+          _measurementChild,
+          paragraph,
+          _AutoSizeTextChildSlot.measurement,
+        );
+        _activate(_measurementRenderBox);
+      }
     });
   }
 
   void _clearChild() {
     owner!.buildScope(this, () {
-      _child = updateChild(_child, null, null);
+      _measurementChild = updateChild(
+        _measurementChild,
+        null,
+        _AutoSizeTextChildSlot.measurement,
+      );
+      _child = updateChild(_child, null, _AutoSizeTextChildSlot.primary);
+      _primaryIsParagraph = false;
+      _activate(null);
     });
   }
 
   @override
   void insertRenderObjectChild(RenderObject child, Object? slot) {
-    assert(slot == null);
     assert(child is RenderBox);
-    renderObject.child = child as RenderBox;
+    switch (slot) {
+      case _AutoSizeTextChildSlot.primary:
+        _primaryRenderBox = child as RenderBox;
+        if (_measurementRenderBox == null) {
+          _activate(_primaryRenderBox);
+        }
+        break;
+      case _AutoSizeTextChildSlot.measurement:
+        _measurementRenderBox = child as RenderBox;
+        _activate(_measurementRenderBox);
+        break;
+      default:
+        assert(false, 'Unknown AutoSizeText child slot.');
+    }
   }
 
   @override
@@ -126,16 +221,43 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
     Object? oldSlot,
     Object? newSlot,
   ) {
-    assert(false);
+    assert(child is RenderBox);
+    assert(
+      oldSlot == _AutoSizeTextChildSlot.measurement &&
+          newSlot == _AutoSizeTextChildSlot.primary,
+    );
+    _measurementRenderBox = null;
+    _primaryRenderBox = child as RenderBox;
+    _activate(_primaryRenderBox);
   }
 
   @override
   void removeRenderObjectChild(RenderObject child, Object? slot) {
-    assert(slot == null);
-    assert(renderObject.child == child);
-    renderObject.child = null;
+    switch (slot) {
+      case _AutoSizeTextChildSlot.primary:
+        assert(_primaryRenderBox == child);
+        _primaryRenderBox = null;
+        break;
+      case _AutoSizeTextChildSlot.measurement:
+        assert(_measurementRenderBox == child);
+        _measurementRenderBox = null;
+        break;
+      default:
+        assert(false, 'Unknown AutoSizeText child slot.');
+    }
+    if (renderObject.child == child) {
+      _activate(null);
+    }
+  }
+
+  void _activate(RenderBox? child) {
+    if (renderObject.child != child) {
+      renderObject.child = child;
+    }
   }
 }
+
+enum _AutoSizeTextChildSlot { primary, measurement }
 
 final class _RenderAutoSizeText extends RenderProxyBox {
   _RenderAutoSizeText({
