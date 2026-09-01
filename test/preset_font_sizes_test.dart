@@ -1,5 +1,6 @@
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'utils.dart';
@@ -137,7 +138,10 @@ void main() {
         ),
       );
       expect(effectiveFontSize(text), 30);
-      expect(doesTextFit(text, double.infinity, 30), isTrue);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byType(RichText),
+      );
+      expect(renderParagraphFits(paragraph), isTrue);
     });
 
     testWidgets('should keep the larger exact preset of a near-equal pair', (

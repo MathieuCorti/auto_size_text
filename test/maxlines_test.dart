@@ -62,15 +62,25 @@ void main() {
     testWidgets('should honor the wrapWords line bound in the fit helper', (
       tester,
     ) async {
-      const text = Text(
-        'AAAA BBBB',
-        style: TextStyle(fontFamily: 'Ahem', fontSize: 10),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-        maxLines: 4,
+      await pump(
+        tester: tester,
+        widget: const SizedBox(
+          width: 10,
+          child: Text(
+            'A A A A A',
+            style: TextStyle(fontFamily: 'Ahem', fontSize: 10),
+            textDirection: TextDirection.ltr,
+            textScaler: TextScaler.noScaling,
+            maxLines: 4,
+          ),
+        ),
+      );
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byType(RichText),
       );
 
-      expect(doesTextFit(text, 20, double.infinity, false), isFalse);
+      expect(paragraph.maxLines, 4);
+      expect(renderParagraphFits(paragraph, wrapWords: false), isFalse);
     });
   });
 }
