@@ -330,12 +330,18 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       context,
     );
     final wordSpacingOverride = MediaQuery.maybeWordSpacingOverrideOf(context);
+    final measurementTextStyleOverride =
+        lineHeightOverride == null &&
+            letterSpacingOverride == null &&
+            wordSpacingOverride == null
+        ? null
+        : TextStyle(
+            height: lineHeightOverride,
+            letterSpacing: letterSpacingOverride,
+            wordSpacing: wordSpacingOverride,
+          );
     measurementStyle = measurementStyle.merge(
-      TextStyle(
-        height: lineHeightOverride,
-        letterSpacing: letterSpacingOverride,
-        wordSpacing: wordSpacingOverride,
-      ),
+      measurementTextStyleOverride ?? const TextStyle(),
     );
 
     final measurementStrutStyle = widget.strutStyle?.merge(
@@ -349,6 +355,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     return _EffectiveTextConfiguration(
       baseStyle: baseStyle,
       measurementStyle: measurementStyle,
+      measurementTextStyleOverride: measurementTextStyleOverride,
       renderStyle: renderStyle,
       measurementStrutStyle: measurementStrutStyle,
       textAlign:
@@ -448,30 +455,52 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     _EffectiveTextConfiguration configuration,
     _CandidateSet candidates,
   ) {
-    final span = widget.data != null
-        ? TextSpan(
-            style: configuration.measurementStyle,
-            text: widget.data,
-            locale: widget.locale,
-          )
-        : TextSpan(
-            style: widget.textSpan?.style ?? configuration.measurementStyle,
-            text: widget.textSpan?.text,
-            locale: widget.locale,
-            children: widget.textSpan?.children,
-            recognizer: widget.textSpan?.recognizer,
+    final sourceTextSpan = widget.textSpan;
+    if (sourceTextSpan != null && _containsWidgetSpan(sourceTextSpan)) {
+      throw UnsupportedError(
+        'AutoSizeText.rich does not support WidgetSpan until inline children '
+        'receive automatic placeholder dimensions.',
+      );
+    }
+    final measurementTextSpan = sourceTextSpan == null
+        ? null
+        : _applyTextStyleOverride(
+            sourceTextSpan,
+            configuration.measurementTextStyleOverride,
+          );
+    final unbreakableTextSnapshot = widget.wrapWords
+        ? null
+        : _UnbreakableTextSnapshot.from(
+            measurementTextSpan ?? TextSpan(text: widget.data),
           );
 
     final referenceFontSize = configuration.referenceFontSize;
     final result = candidates.findLargestThatFits((candidate) {
-      final candidateScaler = referenceFontSize == 0 && widget.data != null
-          ? TextScaler.noScaling
+      final parentStyle = referenceFontSize == 0
+          ? configuration.measurementStyle.copyWith(fontSize: candidate)
+          : configuration.measurementStyle;
+      final span = TextSpan(
+        style: parentStyle,
+        text: widget.data,
+        locale: widget.locale,
+        children: measurementTextSpan == null
+            ? null
+            : <InlineSpan>[measurementTextSpan],
+      );
+      final candidateScaler = referenceFontSize == 0
+          ? configuration.userScaler
           : _CandidateTextScaler(
               source: configuration.userScaler,
               candidate: candidate,
               reference: referenceFontSize,
             );
-      return _checkTextFits(span, candidateScaler, configuration, constraints);
+      return _checkTextFits(
+        span,
+        candidateScaler,
+        configuration,
+        constraints,
+        unbreakableTextSnapshot,
+      );
     });
 
     final effectiveFontSize = configuration.userScaler.scale(result.value);
@@ -489,20 +518,14 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     TextScaler candidateScaler,
     _EffectiveTextConfiguration configuration,
     BoxConstraints constraints,
+    _UnbreakableTextSnapshot? unbreakableTextSnapshot,
   ) {
-    if (!widget.wrapWords) {
-      final words = text.toPlainText().split(RegExp('\\s+'));
-
+    if (unbreakableTextSnapshot != null) {
       final wordWrapTextPainter = TextPainter(
-        text: TextSpan(
-          style: text.style,
-          text: words.join('\n'),
-          locale: widget.locale,
-        ),
+        text: text,
         textAlign: configuration.textAlign,
         textDirection: configuration.textDirection,
         textScaler: candidateScaler,
-        maxLines: words.length,
         locale: configuration.locale,
         strutStyle: configuration.measurementStrutStyle,
         textWidthBasis: configuration.textWidthBasis,
@@ -510,14 +533,18 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       );
 
       try {
-        wordWrapTextPainter.layout(
-          minWidth: constraints.minWidth,
-          maxWidth: constraints.maxWidth,
-        );
-
-        if (wordWrapTextPainter.didExceedMaxLines ||
-            wordWrapTextPainter.width > constraints.maxWidth) {
-          return false;
+        wordWrapTextPainter.layout(maxWidth: double.infinity);
+        for (final range in unbreakableTextSnapshot.ranges) {
+          final boxes = wordWrapTextPainter.getBoxesForSelection(
+            TextSelection(baseOffset: range.start, extentOffset: range.end),
+          );
+          final rangeWidth = boxes.fold<double>(
+            0,
+            (width, box) => width + (box.right - box.left).abs(),
+          );
+          if (rangeWidth > constraints.maxWidth) {
+            return false;
+          }
         }
       } finally {
         wordWrapTextPainter.dispose();
@@ -602,6 +629,11 @@ class _AutoSizeTextState extends State<AutoSizeText> {
         textHeightBehavior: configuration.textHeightBehavior,
       );
     } else {
+      final renderStyle = groupFontSize == null && referenceFontSize == 0
+          ? (configuration.renderStyle ?? const TextStyle()).copyWith(
+              fontSize: candidate,
+            )
+          : configuration.renderStyle;
       final candidateScaler = groupFontSize != null
           ? referenceFontSize == 0
                 ? TextScaler.noScaling
@@ -616,7 +648,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       return Text.rich(
         widget.textSpan!,
         key: widget.textKey,
-        style: configuration.renderStyle,
+        style: renderStyle,
         strutStyle: widget.strutStyle,
         textAlign: widget.textAlign,
         textDirection: widget.textDirection,
