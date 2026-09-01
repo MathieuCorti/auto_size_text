@@ -6,25 +6,29 @@ Branche de revue : `codex/review-text-fixtures`
 
 Base exacte : `a13534cd12842b2e6847feb4963842175a96ee10`
 
-Candidat revu : `129dfbc376e8d7dc907a0cf0e5f55e43d55fa6d9`
+Candidat initial : `129dfbc376e8d7dc907a0cf0e5f55e43d55fa6d9`
+
+Correctif revu : `13eabfe795fc58ea5bd18a082209eb85cc26011a`
 
 Décision de fixtures examinée dans l'intégration :
 `/private/tmp/auto-size-text-impl-integration/maintenance/decisions/text-metric-fixtures.md`
 
 ## Verdict
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
 Les trois TTF committés sont déterministes par rapport aux recettes actuelles,
 leurs sources Flutter 3.41/3.47 sont identiques, leurs poids et leur table
 `locl` sont corrects, et les deux suites ciblées passent 21/21 sur les deux
-SDK sans réseau pendant leur exécution. La future politique `.pubignore` P7
-conserve également les tests, les fontes et les licences.
+SDK sans réseau pendant leur exécution. Le sanity final sous Flutter 3.47.2
+reste vert 21/21. La future politique `.pubignore` P7 conserve également les
+tests, les fontes et les licences.
 
-Un point empêche d'accepter la livraison comme clôture supply-chain : la
-licence Noto versionnée ne correspond ni aux octets, ni à la taille, ni au
-SHA-256 que la recette déclare autoritaires ; sa provenance exacte et son
-propre hash ne sont consignés nulle part.
+Le correctif `13eabfe` ferme exactement le finding supply-chain initial. La
+licence Noto versionnée correspond désormais octet pour octet au blob Flutter
+immuable cité par la recette : 4 301 octets et SHA-256 complet `c3dd4c…`. Le
+texte OFL-1.1 est complet ; le copyright Google reste conservé dans la table
+`name[0]` du TTF Noto inchangé.
 
 Un diagnostic non bloquant montre par ailleurs que les trois fontes peuvent
 être réduites de 10 504 à 4 744 octets en retirant le hinting, sans casser les
@@ -32,14 +36,15 @@ Un diagnostic non bloquant montre par ailleurs que les trois fontes peuvent
 minimalité absolue octet par octet : ce résultat reste une recommandation de
 durcissement, pas un second finding.
 
-Aucun code produit, asset, licence, manifeste ou test n'a été corrigé pendant
-cette revue. Aucun merge, push, tag ou publish réel n'a été effectué.
+Aucun finding actionnable ne reste dans le périmètre. Aucun code produit,
+manifeste, test ou TTF n'a été modifié par le correctif. Aucun merge, push,
+tag ou publish réel n'a été effectué.
 
-## Findings
+## Résolution du finding initial
 
-### 1. La licence Noto commitée n'est pas reproductible depuis l'autorité documentée
+### Licence Noto désormais identique à l'autorité documentée
 
-**Sévérité : moyenne — supply-chain et conformité de provenance.**
+**État : résolu par `13eabfe`.**
 
 La décision donne comme autorité :
 
@@ -49,35 +54,32 @@ SHA-256 : c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f
 source : blob Flutter 358e88c.../NotoColorEmoji-LICENSE.txt
 ```
 
-Le fichier réellement committé est :
+Le fichier réellement committé est maintenant :
 
 ```text
 test/assets/fonts/LICENSE-NotoNaskhArabic.txt
-taille : 4 350 octets
-SHA-256 : e2729335a9a3c01e2d36ad91bbe096b53e39a442ddcd84d85f358fad7a91a8f0
+taille : 4 301 octets
+SHA-256 : c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f
 ```
 
-La commande `git show` exacte de la recette reproduit bien le fichier de
-4 301 octets et le hash `c3dd…`, mais pas l'asset committé. La version commitée
-ajoute le copyright `Copyright 2014 Google Inc. All Rights Reserved.`, change
-la mise en lignes et ajoute un saut de ligne final. Après retrait de cette
-attribution et normalisation des espaces, les mots des conditions OFL sont
-identiques ; il ne s'agit donc pas d'un texte de licence tronqué ou altéré.
-L'attribution ajoutée concorde aussi avec le champ copyright du TTF.
+`cmp` retourne 0 entre l'asset et la sortie de :
 
-La conformité substantielle OFL-1.1 est bonne, mais la chaîne de provenance
-promise ne l'est pas : aucun chemin source immuable, aucune transformation
-exacte et aucun hash documenté ne produisent les 4 350 octets livrés. De plus,
-le sous-ensemble Noto ne conserve que les entrées `name` 0 à 6 ; il garde le
-copyright, mais aucune entrée de licence 13/14. L'affirmation de la décision
-selon laquelle le TTF conserve sa propre déclaration OFL est donc inexacte et
-la licence adjacente est bien l'unique copie complète dans l'archive.
+```text
+git -C /private/tmp/flutter-sdk-3.47.2/flutter show \
+  358e88cabfdd7311c8093d8523da78b0ab2f934d:\
+engine/src/flutter/third_party/txt/third_party/fonts/\
+NotoColorEmoji-LICENSE.txt
+```
 
-**Correction minimale demandée :** choisir une seule autorité. Soit livrer le
-blob déjà documenté, soit conserver l'attribution actuelle mais documenter sa
-source immuable et la recette exacte qui la produit, puis remplacer la taille,
-le SHA-256 et le total de licences dans la décision et le journal. Le hash
-complet des cinq fichiers doit être contrôlé après cette correction.
+`git cat-file -s` retourne 4 301 et la sortie directe de `git show` porte le
+même SHA-256 complet. Le texte adjoint contient l'OFL-1.1 intégrale. Le TTF
+Noto, inchangé depuis `129dfbc`, conserve dans `name[0]` :
+`Copyright 2014 Google Inc. All Rights Reserved.` Sa famille, son poids 400,
+ses huit glyphes, `GSUB`/`GPOS` et `locl` sont inchangés. Les conditions OFL
+de licence adjacente et de conservation du copyright sont donc satisfaites.
+
+Le diff correctif contient exactement ce fichier texte, 26 ajouts et 26
+retraits de remise en lignes ; aucune fonte ou autre surface n'est touchée.
 
 ## Diagnostic non bloquant — hinting et réduction supplémentaire
 
@@ -128,7 +130,7 @@ Les cinq assets committés ont les tailles et SHA-256 suivants :
 | `auto_size_metric_roboto_bold.ttf` | 2 632 | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` |
 | `auto_size_metric_naskh_locl.ttf` | 5 212 | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` |
 | `LICENSE-Roboto.txt` | 11 358 | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
-| `LICENSE-NotoNaskhArabic.txt` | 4 350 | `e2729335a9a3c01e2d36ad91bbe096b53e39a442ddcd84d85f358fad7a91a8f0` |
+| `LICENSE-NotoNaskhArabic.txt` | 4 301 | `c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f` |
 
 Les sources des deux SDK sont identiques octet pour octet :
 
@@ -164,10 +166,9 @@ même famille privée.
 
 `LICENSE-Roboto.txt` est identique au `Roboto_LICENSE.txt` des deux SDK et
 contient l'Apache License 2.0 complète. Les notices copyright intégrées sont
-conservées. La licence Noto contient le texte OFL-1.1 complet et le copyright
-Google correspondant ; aucun Reserved Font Name n'est déclaré dans ce texte.
-Le problème du finding 1 porte sur sa reproduction, pas sur une permission de
-redistribution manquante.
+conservées. La licence Noto est identique au blob Flutter autoritaire et
+contient le texte OFL-1.1 complet ; le copyright Google correspondant reste
+dans la table `name` du TTF. Aucun Reserved Font Name n'est déclaré.
 
 Aucune table inattendue ni charge arbitraire ajoutée par le candidat n'a été
 trouvée. `ots-sanitize` n'est pas installé sur l'hôte : cette revue ne revendique
@@ -216,9 +217,13 @@ trois variantes sans hinting. L'exécution des tests ne déclenche aucune
 résolution, lecture d'asset depuis un SDK, fonte système ou requête réseau ;
 seules les trois fixtures versionnées sont lues comme données de fonte.
 
+Après `13eabfe`, un sanity supplémentaire des deux suites sous Flutter 3.47.2
+retourne à nouveau 21/21. La licence n'est pas lue au runtime ; les trois TTF,
+les helpers et les tests sont identiques à ceux déjà exécutés sous 3.41.0.
+
 ## Impact de la future archive P7
 
-Une archive Git propre de `129dfbc` a été extraite sans `.git`, puis a reçu
+Une archive Git propre de `13eabfe` a été extraite sans `.git`, puis a reçu
 exactement le `.pubignore` accepté de P7 au commit
 `b2b9b72b6b5bf5b4b30832494b2bb48eeba43861`. Le dry-run Flutter 3.47.2
 retourne 0 :
@@ -233,9 +238,9 @@ fixtures/licences présentes : 5/5
 `test/effective_text_configuration_test.dart`, `test/text_scaler_test.dart`,
 les trois TTF et les deux licences figurent explicitement dans la liste. P7 ne
 contient aucune règle qui exclut `test/` ou `*.ttf`; les tests publiés restent
-donc rejouables. L'impact non compressé réel des cinq assets est 26 212 octets
-(10 504 de fontes et 15 708 de licences), et non les 26 163 octets annoncés
-par la décision avant l'ajout non documenté de 49 octets à la licence Noto.
+donc rejouables. L'impact non compressé réel des cinq assets est exactement
+26 163 octets : 10 504 de fontes et 15 659 de licences, conformément à la
+décision.
 
 Ce dry-run simule l'union mais ne la remplace pas : la gate S10 devra être
 rejouée sur le SHA fusionné final.
@@ -267,15 +272,16 @@ session, autorisation, secret, cryptographie ou appel réseau.
 | Divulgation | Aucun chemin personnel ou contenu sensible dans helper, TTF ou archive P7. |
 | Déni de service | Fichiers bornés à 10 504 octets ; aucune boucle dépendant de données externes. |
 | Logique métier | Poids, direction, locale et hauteur ont des témoins divergents et passent sur les deux SDK. |
-| Supply-chain | Finding sur la provenance exacte de la licence Noto ; hinting inutile consigné comme recommandation. |
+| Supply-chain | Licence Noto identique au blob épinglé ; TTF inchangés et reproductibles ; hinting consigné comme recommandation. |
 
 ## Fichiers et sources lus, limites
 
-Ont été lus ou inspectés intégralement : les deux licences, les répertoires et
-métadonnées des trois TTF, `test/effective_text_configuration_test.dart`, le
-journal `maintenance/implementation/lot-3-effective-text.md`, la décision de
-fixtures, la future `.pubignore` P7 et sa revue. `test/text_scaler_test.dart` a
-été exécuté sur les deux SDK ; il ne charge lui-même aucune fixture.
+Ont été lus ou inspectés intégralement lors de la revue initiale : les deux
+licences, les répertoires et métadonnées des trois TTF,
+`test/effective_text_configuration_test.dart`, le journal, la décision de
+fixtures, la future `.pubignore` P7 et sa revue. La re-revue a lu intégralement
+le seul fichier modifié par `13eabfe`, son diff complet et le blob autoritaire.
+`test/text_scaler_test.dart` ne charge lui-même aucune fixture.
 
 Le diff produit du lot 3 n'est pas rejugé ici : la mission est volontairement
 bornée aux cinq assets, à leur chargement et à leur publication future. La
@@ -283,15 +289,10 @@ seule limite d'outil matérielle est l'absence d'`ots-sanitize`; elle est
 compensée partiellement, mais pas remplacée, par l'inspection SFNT, Fontconfig,
 HarfBuzz, la reproduction binaire et les deux exécutions Flutter.
 
-## Conditions de nouvelle revue
+## Conclusion de re-revue
 
-1. Rendre la licence Noto reproductible et aligner son hash/taille/total avec
-   la décision.
-2. Recalculer les cinq SHA-256 complets et, si les TTF changent, comparer leur
-   régénération octet pour octet.
-3. Rejouer les 21 tests sur Flutter 3.41.0 et 3.47.2 avec `--no-pub`.
-4. Rejouer le dry-run P7 et confirmer la présence des cinq assets et des deux
-   suites, sans warning.
-
-Le retrait du hinting peut être traité dans la même correction, mais reste une
-recommandation non bloquante.
+Le finding initial est fermé sans élargissement : un seul fichier texte a été
+aligné sur sa source immuable et tous les contrôles qui dépendaient de ses
+octets sont maintenant cohérents. Les tests ciblés et le dry-run P7 restent
+verts. Le retrait futur du hinting demeure une recommandation non bloquante et
+n'affecte pas le verdict **ACCEPTÉ**.
