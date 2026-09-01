@@ -6,7 +6,7 @@ Branche : `codex/impl-groups`
 
 Parent exact : `c9a1adc006365feb3e1750069ca1e115c3f20237`
 
-Tête produit et tests : `713be70` ; le commit suivant contient uniquement ce
+Tête produit et tests : `2f87be2` ; le commit suivant contient uniquement ce
 journal.
 
 ## Périmètre livré
@@ -61,9 +61,12 @@ qu'une autre sortie invalide est rencontrée seulement pendant la projection,
 la projection lève `ArgumentError` ; aucune valeur invalide n'entre dans la map
 ou dans `G`, et le `P` fini déjà écrit reste publié. Il n'existe pas de rollback
 transactionnel spéculatif. La régression permanente récupère ensuite sans
-réinscription. Elle retire ensuite le voisin qui imposait `G=25` et utilise un
-troisième membre de domaine `{70,50}` : le rapport `P=50` conservé impose
-encore son rendu à 50. Un rollback vers `+∞` rendrait ce témoin à 70.
+modifier A. Elle place d'abord un observateur de domaine `{70,50}`, puis A,
+puis le voisin B qui impose `G=25` dans son propre `StatefulBuilder`. Après
+avoir capturé l'exception, seul B est retiré. À la pompe de synchronisation,
+l'observateur construit avant A rend 50 grâce au rapport conservé et aucune
+frame ne reste planifiée. Un rollback cohérent du rapport et du cache rendrait
+l'observateur à 70 avant qu'A puisse republier, puis programmerait une vague.
 
 ## Convergence et cycle de vie
 
@@ -151,10 +154,19 @@ le contrat mathématique.
 
 La première était test-only : l'ancien cas d'erreur laissait B publier 25. A
 rendait donc 20 après récupération que son rapport fini 50 ait été retenu ou
-illégalement remplacé par `+∞`. Le test final ajoute C, qui publie 70 avec le
-domaine `{70,50}`, puis retire B. Sur le produit intact, C rend 50. Avec le
-mutant temporaire `_remove(this); _register(this);` dans le chemin d'exception,
-les deux SDK échouent avec `Expected: 50, Actual: 70.0`. Le mutant a été retiré.
+illégalement remplacé par `+∞`. Le premier renforcement `8505ee6` ajoutait C,
+mais changeait ensuite le scaler d'A et lui permettait de republier 50 avant
+l'observation. Il tuait un rollback incomplet `_remove/_register`, pas un
+rollback cohérent qui remettait aussi le cache publié à `null`.
+
+La contre-revue projection `8dc1ee4` a reproduit ce second mutant vert sur les
+deux SDK. Le test `2f87be2` conserve désormais A strictement inchangé, place C
+avant A dans l'ordre de layout et retire seulement B dans un sous-arbre isolé.
+Le produit intact rend C à 50. L'ancien oracle reste vert avec le rollback
+cohérent ; le nouvel oracle devient rouge sur les deux pins avec
+`Expected: 50, Actual: 70.0`. Chaque pompe consomme explicitement l'exception
+éventuelle et la frame témoin interdit une republication différée masquée. Le
+mutant a été retiré sans changement produit.
 
 La seconde était produit : `oldWidget.group != widget.group` consultait
 l'égalité surchargée de deux contrôleurs. Le test utilise deux sous-classes
@@ -235,9 +247,9 @@ du worktree n'a changé.
 | suite complète après downgrade `--no-pub` | 115/115 |
 | probe privé schedule/run/callback | `1/1/1` par membre et par époque stable |
 
-Les deux extractions de rouge, l'extraction minimale et celle du probe ont été
-supprimées après usage. Le ciblage explicite lifecycle/leak représente 9/9
-tests et n'a signalé ni painter orphelin ni callback après dispose.
+Toutes les extractions de rouge, les extractions minimales et celles des probes
+ont été supprimées après usage. Le ciblage explicite lifecycle/leak représente
+9/9 tests et n'a signalé ni painter orphelin ni callback après dispose.
 
 ## Commits
 
@@ -247,7 +259,9 @@ tests et n'a signalé ni painter orphelin ni callback après dispose.
 - `b7bd149` — `docs: record lot 5 implementation evidence` ;
 - `8505ee6` — `test: cover group report retention and identity` ;
 - `713be70` — `fix: compare group controllers by identity` ;
-- commit suivant — mise à jour du journal après revue.
+- `d2bcdc9` — `docs: record lot 5 review fixes` ;
+- `2f87be2` — `test: observe retained group report before republish` ;
+- commit suivant — mise à jour du journal après contre-revue projection.
 
 ## Limites et risques transmis
 
