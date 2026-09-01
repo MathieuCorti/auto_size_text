@@ -8,39 +8,66 @@ import 'package:flutter_test/flutter_test.dart';
 double effectiveFontSize(Text text) =>
     (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);
 
-bool doesTextFit(
-  Text text, [
-  double maxWidth = double.infinity,
-  double maxHeight = double.infinity,
-  bool wrapWords = true,
-]) {
-  final span = text.textSpan ?? TextSpan(text: text.data, style: text.style);
-  var maxLines = text.maxLines;
+bool renderParagraphFits(RenderParagraph paragraph, {bool wrapWords = true}) {
+  final constraints = paragraph.constraints;
+
   if (!wrapWords) {
-    final wordCount = span.toPlainText().split(RegExp('\\s+')).length;
-    maxLines = maxLines!.clamp(1, wordCount);
+    final unwrappedPainter = _resolvedTextPainter(paragraph);
+    try {
+      unwrappedPainter.layout(maxWidth: double.infinity);
+      final plainText = paragraph.text.toPlainText(
+        includeSemanticsLabels: false,
+      );
+      for (final match in _indivisibleTextRuns.allMatches(plainText)) {
+        final boxes = unwrappedPainter.getBoxesForSelection(
+          TextSelection(baseOffset: match.start, extentOffset: match.end),
+        );
+        final width = boxes.fold<double>(
+          0,
+          (sum, box) => sum + (box.right - box.left).abs(),
+        );
+        if (width > constraints.maxWidth) {
+          return false;
+        }
+      }
+    } finally {
+      unwrappedPainter.dispose();
+    }
   }
 
-  final textPainter = TextPainter(
-    text: span,
-    textAlign: text.textAlign ?? TextAlign.start,
-    textDirection: text.textDirection,
-    textScaler: text.textScaler ?? TextScaler.noScaling,
-    maxLines: text.maxLines,
-    locale: text.locale,
-    strutStyle: text.strutStyle,
-  );
-
+  final painter = _resolvedTextPainter(paragraph, maxLines: paragraph.maxLines);
   try {
-    textPainter.layout(maxWidth: maxWidth);
+    final layoutMaxWidth =
+        paragraph.softWrap || paragraph.overflow == TextOverflow.ellipsis
+        ? constraints.maxWidth
+        : double.infinity;
+    painter.layout(minWidth: constraints.minWidth, maxWidth: layoutMaxWidth);
+    final textSize = painter.size;
+    final renderSize = constraints.constrain(textSize);
 
-    return !(textPainter.didExceedMaxLines ||
-        textPainter.height > maxHeight ||
-        textPainter.width > maxWidth);
+    return !painter.didExceedMaxLines &&
+        renderSize.width >= textSize.width &&
+        renderSize.height >= textSize.height;
   } finally {
-    textPainter.dispose();
+    painter.dispose();
   }
 }
+
+final RegExp _indivisibleTextRuns = RegExp(r'(?:[^\s]|[\u00A0\u202F])+');
+
+TextPainter _resolvedTextPainter(RenderParagraph paragraph, {int? maxLines}) =>
+    TextPainter(
+      text: paragraph.text,
+      textAlign: paragraph.textAlign,
+      textDirection: paragraph.textDirection,
+      textScaler: paragraph.textScaler,
+      maxLines: maxLines,
+      ellipsis: paragraph.overflow == TextOverflow.ellipsis ? '\u2026' : null,
+      locale: paragraph.locale,
+      strutStyle: paragraph.strutStyle,
+      textWidthBasis: paragraph.textWidthBasis,
+      textHeightBehavior: paragraph.textHeightBehavior,
+    );
 
 bool prepared = false;
 

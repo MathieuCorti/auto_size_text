@@ -1,7 +1,7 @@
 # Oracle numérique du domaine de candidats — lot 2
 
-Date : 2026-09-01  
-Base inspectée : `S2` / `ae52fe6d15a688621b2470d3f4a10555a410d686`  
+Date : 2026-09-01
+Base inspectée : `S2` / `ae52fe6d15a688621b2470d3f4a10555a410d686`
 Objet : critères indépendants pour `_CandidateSet`, la dichotomie et les
 validations runtime. Ce document ne prescrit aucun correctif produit.
 

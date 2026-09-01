@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'leak_tracking.dart';
@@ -23,15 +24,25 @@ class _ThrowingTextSpan extends TextSpan {
 void main() {
   group('AutoSizeText TextPainter lifecycle', () {
     testWidgets('should dispose the helper painter after checking text fit', (
-      _,
+      tester,
     ) async {
-      const text = Text(
-        'helper text',
-        style: TextStyle(fontSize: 20),
-        textDirection: TextDirection.ltr,
+      await pump(
+        tester: tester,
+        widget: const SizedBox(
+          width: 200,
+          height: 40,
+          child: Text(
+            'helper text',
+            style: TextStyle(fontSize: 20),
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      );
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byType(RichText),
       );
 
-      expect(doesTextFit(text, 200, 40), isTrue);
+      expect(renderParagraphFits(paragraph), isTrue);
     }, experimentalLeakTesting: nativeResourceLeakTesting);
 
     testWidgets('should dispose the painter when the initial font size fits', (
