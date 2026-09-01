@@ -4,164 +4,160 @@ Date : 2026-09-01
 
 Base exacte : `a13534cd12842b2e6847feb4963842175a96ee10`
 
-Candidat revu : `cac342c8bdb0fb1e874cb7d18d609c691a46d5a5`
+Candidat initial : `cac342c8bdb0fb1e874cb7d18d609c691a46d5a5`
+
+Première revue : `02dd06d75044ed636fba2717856f52b392adec89`
+
+Correctif re-revu : `a6dea62a564c6bf85734a5def9df457a82d37ca1`
 
 Branche de revue : `codex/review-effective-text-a11y`
 
-Périmètre : `TextScaler`, configuration effective du texte simple positif,
-parité entre le fitter et le vrai `RenderParagraph`, sémantique de base et
-non-régression historique #25. Aucun correctif produit ou test permanent n'a
-été ajouté par la revue ; le présent rapport est son seul livrable.
+Périmètre : configuration effective du texte simple positif, composition de
+`TextScaler`, parité entre le fitter et le vrai `RenderParagraph`, sémantique
+de base, non-régression historique #25 et delta correctif `02dd06d..a6dea62`.
+La revue n'a modifié ni le produit ni les tests ; ce rapport est son seul
+livrable.
 
-## Verdict
+## Verdict final
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
-Je n'ai reproduit **aucun défaut produit** dans le périmètre du lot 3. La
-séparation style/strut pré-override pour le `Text` final et post-override pour
-les painters est correcte. La composition non linéaire, les règles de largeur,
-la contrainte de la taille réelle, `didExceedMaxLines`, le remplacement et la
-sémantique ont concordé avec de vrais `RenderParagraph` sur les deux SDK
-exacts.
+Aucun défaut produit ni aucune lacune de preuve bloquante ne reste dans le
+périmètre. Les deux findings P1 de la première revue sont clos par des fixtures
+versionnées et métriquement sensibles, des oracles indépendants du widget et
+des comparaisons avec de vrais `RenderParagraph`. Les régressions simulées de
+gras, direction, locale et hauteur font toutes échouer le candidat réellement
+rendu sur Flutter 3.41.0 comme sur Flutter 3.47.2.
 
-Deux **lacunes de preuve permanente** restent néanmoins bloquantes. Elles
-contredisent les cas P0 et la règle explicite de l'oracle selon laquelle une
-fixture de gras, direction/locale ou `TextHeightBehavior` doit d'abord prouver
-que les deux branches ont des métriques différentes. Les probes temporaires de
-revue établissent que le code actuel est correct, mais ne remplacent pas des
-régressions permanentes capables de détecter une casse future.
+Le delta corrige aussi une régression de compatibilité de groupe introduite par
+le candidat initial : le groupe republie l'unité effective historique et un
+test hétérogène avec les facteurs legacy 1 et 2 vérifie `[20, 20]`. Le code de
+mesure du texte non groupé reste inchangé par cette correction.
 
-## Findings
+## Clôture des findings initiaux
 
-### P1 — Le test `boldText` ne possède pas de témoin métrique fiable
+### Gras : clos
 
-**Fichier :** `test/effective_text_configuration_test.dart:192`
+Le test ne dépend plus de la police système ni d'une simple inspection de
+`fontWeight`. Il enregistre sous une famille de test deux sous-ensembles Roboto
+regular `w400` et bold `w700`, puis :
 
-**Nature :** lacune de preuve permanente, pas défaut produit reproduit.
+- prouve que les largeurs de `MMMMMM` diffèrent à taille 30 ;
+- place la contrainte entre ces deux seuils ;
+- établit avec un `TextPainter` témoin que les candidats sont respectivement
+  30 et 29 ;
+- vérifie que le vrai `RenderParagraph` garde 30 sans accessibilité et choisit
+  29 avec `boldText` ;
+- compare ses métriques et `didExceedMaxLines` au témoin ;
+- conserve un cas d'entrée `w900` qui doit être remplacée exactement par
+  `w700`.
 
-Le test rend `XXXXXX` en famille `Roboto`, avec une entrée `w900`, puis affirme
-seulement que le paragraphe final porte `w700`. Son oracle de candidat est
-ensuite reconstruit depuis le style du `RenderParagraph` déjà rendu. Il
-n'établit jamais que les métriques `w700` diffèrent de `w900` pour cette
-fixture.
+Un mutant supprimant l'application de `MediaQuery.boldTextOf` échoue sur
+`Expected: 29.0, Actual: 30.0` dans les deux SDK.
 
-Une implémentation régressive qui mesurerait encore `w900` mais laisserait
-`Text.build` rendre `w700` peut donc passer si les deux poids ont les mêmes
-avances. Ce n'est pas hypothétique comme faiblesse de test : le journal admet
-explicitement aux lignes 165-167 que le dépôt ne fournit aucune police
-garantissant une largeur différente. L'oracle exige pourtant une fonte
-regular/bold de métriques distinctes et un candidat qui change réellement.
+### Direction, locale et hauteur : clos
 
-Le probe indépendant a d'abord rencontré des avances identiques entre les
-poids Roboto testés. Il a ensuite enregistré sous une même famille de revue des
-faces déterministes de métriques distinctes, établi que `w700` et `w900`
-produisaient des largeurs et candidats différents, puis vérifié que
-`AutoSizeText` choisissait exactement le candidat `w700`. Ce probe passe 1/1
-sur Flutter 3.41.0 et 1/1 sur Flutter 3.47.2 : le produit est conforme, la
-preuve permanente ne l'est pas.
+Les causes sont isolées dans trois tests permanents :
 
-**Correction attendue :** ajouter des fixtures licenciées regular/bold dont les
-métriques diffèrent de façon déterministe, affirmer d'abord la différence du
-témoin, placer la contrainte entre les deux seuils, puis affirmer le candidat
-et les métriques du vrai `RenderParagraph`. L'entrée `w900` doit rester pour
-prouver son remplacement exact par `w700`.
+- `<<<<<<` avec Roboto possède des avances différentes en LTR et RTL ; les
+  candidats témoins sont 30 et 29. Les variantes héritée et explicite vérifient
+  ensuite direction, alignement, `TextWidthBasis`, `textSize`, dépassement et
+  candidat du vrai paragraphe ;
+- six U+066C avec le sous-ensemble Noto Naskh `locl` produisent des métriques
+  différentes en `ar` et `fa` ; les candidats sont 30 et 26. Les permutations
+  locale héritée/explicite sont contrôlées sur le vrai paragraphe ;
+- `Hg`, Roboto et `height: 3` donnent 90 px avec le comportement normal et
+  35 px sans hauteur sur la première ascension et la dernière descente. La
+  baseline diffère aussi ; sous 60 px de hauteur, les candidats sont 20 et 30.
+  Le test distingue `DefaultTextStyle.textHeightBehavior` du fallback
+  `DefaultTextHeightBehavior` et lit les métriques réelles.
 
-### P1 — Direction, locale et comportements de hauteur sont vérifiés par leurs propriétés, pas par une divergence métrique
+Les mutants imposant LTR, supprimant le fallback de locale ou supprimant la
+résolution du comportement de hauteur échouent respectivement sur `29→30`,
+`26→30` et `30→20`, sur les deux SDK exacts.
 
-**Fichier :** `test/effective_text_configuration_test.dart:513`
+## Provenance des témoins métriques
 
-**Nature :** lacune de preuve permanente, pas défaut produit reproduit.
+Les trois TTF sont des sous-ensembles déterministes, chargés explicitement par
+`FontLoader` depuis `test/assets/fonts/`. Aucun n'est une police système et
+aucun n'est déclaré dans un manifeste `pubspec`; ils restent donc des fixtures
+de test et ne sont pas ajoutés aux assets des clients.
 
-Le test affirme `textDirection`, `locale`, `textAlign`, `textWidthBasis` et
-`textHeightBehavior` sur le paragraphe final. Le helper recrée ensuite un
-`TextPainter` depuis ce même paragraphe. Il ne construit aucun témoin
-LTR/locale fallback ni aucun témoin avec l'autre `TextHeightBehavior`, et
-n'affirme donc ni une différence de métriques, ni une différence de candidat.
+| Fichier | Taille | SHA-256 |
+|---|---:|---|
+| `auto_size_metric_roboto_regular.ttf` | 2 660 | `893780a2a9c1b15a9ee784b1e34568ff755d3ff9815c9fa755febe303d7bd9c1` |
+| `auto_size_metric_roboto_bold.ttf` | 2 632 | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` |
+| `auto_size_metric_naskh_locl.ttf` | 5 212 | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` |
+| `LICENSE-Roboto.txt` | 11 358 | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `LICENSE-NotoNaskhArabic.txt` | 4 350 | `e2729335a9a3c01e2d36ad91bbe096b53e39a442ddcd84d85f358fad7a91a8f0` |
 
-Ce test resterait vert si le fitter mesurait avec LTR, un locale nul ou un
-comportement de hauteur différent, tant que la fixture thaïe choisit le même
-candidat et que le `Text` final résout correctement les propriétés. L'oracle
-interdit expressément ce type de test aux lignes 379-382 et demande aux lignes
-373-374 une fixture divergente avant de comparer le choix d'`AutoSizeText`.
+Les Roboto sources sont identiques dans les artefacts des deux SDK et la
+licence Apache-2.0 complète est adjacente. La Noto Naskh source est identique
+dans leurs fixtures engine ; la licence OFL-1.1 complète est adjacente. Une
+inspection des tables confirme regular/bold pour Roboto et, pour Noto Naskh,
+les tables de substitution/localisation nécessaires aux formes `ar`/`fa`.
+Les tailles et SHA recalculés indépendamment concordent avec le journal.
 
-Le probe de revue a comparé les boîtes bidi d'un texte latin/hébreu/thaï et a
-établi une différence LTR/RTL avant de comparer les boîtes du vrai
-`RenderParagraph`; il a aussi vérifié les locales héritée/explicite,
-`TextWidthBasis.parent/longestLine`, `DefaultTextStyle.textHeightBehavior`, le
-fallback `DefaultTextHeightBehavior`, les contraintes min/max et la baseline
-réelle. Les deux SDK sont verts et l'inspection statique confirme que le fitter
-utilise ces valeurs. La suite permanente doit cependant posséder ses propres
-fixtures sensibles, en particulier pour le locale et les deux comportements
-de hauteur.
+## Parité produit cumulée
 
-**Correction attendue :** séparer les causes. Pour direction/locale, établir
-d'abord une différence reproductible de boîtes ou de métriques entre le témoin
-effectif et le fallback, puis vérifier le candidat et le paragraphe réel. Pour
-les comportements de hauteur, utiliser un style dont `height` rend les deux
-configurations métriquement distinctes, affirmer cette différence, puis
-vérifier taille, baseline et candidat. Ne pas limiter la régression à
-l'inspection du widget ou des propriétés du render object.
-
-## Vérification indépendante du code produit
-
-Les sources exactes des tags Flutter `3.41.0` et `3.47.2` ont été inspectées
-dans le dépôt Flutter local : `Text.build`, `RichText`, `MediaQuery`,
-`RenderParagraph`, `TextPainter` et `TextScaler`. Les différences de 3.47
-concernant notamment `devicePixelRatio`, la sélection et le caret ne changent
-pas l'oracle métrique du lot 3.
+Les sources exactes de Flutter 3.41.0 et 3.47.2 ont été relues pour
+`Text.build`, `RichText`, `MediaQuery`, `RenderParagraph`, `TextPainter` et
+`TextScaler`. Pour du texte simple positif, le fitter et le paragraphe final
+résolvent la même configuration :
 
 | Surface | Conclusion |
 |---|---|
-| `DefaultTextStyle` et fallback 14 | Fusion `inherit:true`, isolement `inherit:false` et fallback sont reproduits. Le style final reste pré-override. |
-| `boldText` | Le painter fusionne exactement `FontWeight.bold` (`w700`) après le style de base ; le `Text` laisse Flutter faire la même transformation une fois. |
-| Overrides de métriques | Hauteur, letter spacing et word spacing remplacent isolément les valeurs source. La configuration est reconstruite entre frames. |
-| Strut | Un strut fourni reçoit seulement l'override de hauteur ; un strut nul reste nul. Le scaler candidat scale aussi son `fontSize`. |
-| Scaling | Priorité explicite, ancien facteur puis ambiant correcte. La composition appelle `source.scale(size * candidate / reference)` et ne lit pas le getter pour choisir. |
-| Double application | Le style racine conserve la référence et le candidat reste dans le scaler ; style, strut et scaler ne sont pas appliqués deux fois. |
-| Wrap et overflow | Largeur contrainte si wrap ou ellipsis, infinie sinon. Seule ellipsis configure `…`. |
-| Contraintes et fit | `minWidth` et `maxWidth` sont transmis ; le fit compare `textSize` à `constraints.constrain(textSize)` et lit toujours `didExceedMaxLines`. |
-| Direction, locale et defaults | Résolution conforme à `Text.build`/`RichText`, y compris `TextWidthBasis` et le fallback `DefaultTextHeightBehavior`. |
-| Ressources | Les painters principal, auxiliaire `wrapWords:false` et témoins permanents sont libérés dans des `finally`. |
+| Style | Fusion de `DefaultTextStyle`, respect de `inherit:false` et fallback 14 conformes. Le style final reste pré-override. |
+| Accessibilité | `boldText` remplace le poids par `w700`; hauteur, letter spacing et word spacing remplacent isolément les valeurs source et suivent les bascules de frames. |
+| Strut | Un `StrutStyle` fourni reçoit seulement l'override de hauteur ; `null` reste `null`. Le scaler candidat scale aussi son `fontSize`. |
+| Scaling | Priorité scaler explicite, facteur legacy puis scaler ambiant correcte. La composition non linéaire est `source.scale(size × candidate / reference)` et n'est appliquée qu'une fois. |
+| Wrap/overflow | Largeur bornée si wrap ou ellipsis, infinie sinon ; seule ellipsis configure `…`. `clip`, `ellipsis`, `maxLines` et le remplacement divergent comme attendu. |
+| Contraintes | `minWidth` et `maxWidth` sont transmis ; le fit compare `textSize` à `constraints.constrain(textSize)` et lit `didExceedMaxLines`. |
+| Contexte | Direction, locale, `TextWidthBasis`, `TextHeightBehavior` et `DefaultTextHeightBehavior` suivent les fallbacks Flutter exacts. |
+| Render object | Les tests lisent `textSize`, `size`, baseline et `didExceedMaxLines` de vrais `RenderParagraph`; ils ne se limitent pas à l'arbre de widgets. |
+| Sémantique | Le label de base et la régression #25 à taille effective 60 restent couverts sans divergence métrique. |
 
-Le scaler candidat valide les tailles d'entrée, la taille ajustée et chaque
-sortie utilisée comme finies et non négatives. Son égalité et son hash portent
-sur source, candidat et référence. Aucun usage produit de
-`MediaQuery.textScaleFactorOf`, du paramètre déprécié de `TextPainter`, de
-`dynamic`, de `Function.apply` ou de `noSuchMethod` n'a été trouvé.
+Les painters principal et auxiliaires sont libérés dans des `finally`. Les
+validations finies/non négatives restent des branches runtime. Aucun usage
+produit de l'ancien getter de facteur, du paramètre déprécié de `TextPainter`,
+de `dynamic`, `Function.apply` ou `noSuchMethod` n'a été introduit.
 
-## Probes temporaires
+## Correction du groupe legacy et égalité du scaler
 
-Un fichier widget temporaire a exercé un oracle de candidats indépendant. Pour
-chaque paragraphe disponible, il a comparé au vrai `RenderParagraph` :
+Le candidat logique et sa taille effective sont désormais transportés
+séparément par `_AutoSizeTextLayoutResult`. Un groupe publie
+`userScaler.scale(candidate)`, conformément à l'unité historique, puis le texte
+simple groupé rend cette taille avec `TextScaler.noScaling`. Pour les membres
+legacy hétérogènes `20×1` et `15×2`, le vrai rendu reste donc `[20, 20]`.
+Remplacer la publication effective par le candidat logique fait rougir le test
+avec `[15, 15]`; le test homogène détecte aussi cette unité incorrecte.
 
-- taille non contrainte et contrainte, `textSize` et `size` ;
-- `didExceedMaxLines` ;
-- baseline alphabétique wet ;
-- boîtes de sélection bidi ;
-- candidat effectif sous scaler linéaire ou quadratique.
+Le test d'égalité est pertinent parce que `_CandidateTextScaler` est recréé
+entre builds et que source, candidat et référence déterminent sa courbe. Il
+construit de vrais scalers rendus dont une source plateau masque toute
+différence de sortie (`scale(20) == 42` pour tous), puis exige que chacun des
+trois champs participe à `==` et `hashCode`. Omettre le candidat de l'égalité
+fait rougir ce test sur les deux SDK ; l'omission dans le hash a aussi été
+vérifiée rouge séparément sous 3.47.2.
 
-Les huit scénarios couvraient :
+## Mutants indépendants
 
-1. `DefaultTextStyle`, héritage/isolement et fallback 14 ;
-2. `boldText` avec témoin métrique `w700`/`w900` réellement divergent ;
-3. overrides hauteur/letter/word isolés et bascule de frames ;
-4. strut non nul/null et bascule réelle de `overflowReplacement` ;
-5. scaler quadratique ambiant, scaler explicite, `noScaling` et absence de
-   double application ;
-6. `softWrap` hérité/explicite, clip, ellipsis, `maxLines`, remplacement et
-   `didExceedMaxLines` réel ;
-7. contraintes tight/loose avec minima/maxima, RTL/LTR, locale,
-   `TextWidthBasis`, `TextHeightBehavior` et `DefaultTextHeightBehavior` ;
-8. sémantique de base avec `semanticsLabel` et régression #25 à taille
-   effective 60.
+Les mutants ont été appliqués dans un worktree détaché temporaire, jamais dans
+la branche de revue. Chaque mutant 3.47.2 a été exécuté séparément ; la matrice
+combinée a été rejouée sous 3.41.0. Tous ont échoué au témoin attendu :
 
-Résultat : **8/8 sur Flutter 3.41.0 et 8/8 sur Flutter 3.47.2**. Le fichier a
-été supprimé avant les suites finales ; aucun asset ou artefact de probe ne
-reste dans le diff.
+| Régression simulée | Échec observé |
+|---|---|
+| Ignorer `boldText` dans la mesure | candidat attendu 29, réel 30 |
+| Mesurer toujours en LTR | candidat attendu 29, réel 30 |
+| Ignorer la locale héritée | candidat attendu 26, réel 30 |
+| Ignorer les defaults de hauteur | candidat attendu 30, réel 20 |
+| Publier le candidat logique au groupe | tailles attendues `[20,20]`, réelles `[15,15]` |
+| Omettre le candidat de l'égalité | deux scalers distincts deviennent égaux |
+| Omettre le candidat du hash | les hashes distincts deviennent égaux |
 
-La sémantique visible portait exactement `Double dollars`, le scaler historique
-de #25 rendait `15 × 4 = 60`, et le painter témoin concordait encore avec le
-`RenderParagraph`.
+Le worktree temporaire a été restauré puis supprimé. Aucun probe, mutant ou
+artefact généré ne reste dans le diff.
 
 ## Matrice finale
 
@@ -174,40 +170,30 @@ Flutter 3.47.2 • d3b14c8769 • Dart 3.13.2
 
 | Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
 |---|---:|---:|
-| Probe indépendant temporaire | 8/8 | 8/8 |
-| `text_scaler_test` + `effective_text_configuration_test` | 16/16 | 16/16 |
-| Suite racine complète après suppression du probe | 72/72 | 72/72 |
+| Tests ciblés `effective_text_configuration` + `text_scaler` | 21/21 | 21/21 |
+| Suite racine complète | 77/77 | 77/77 |
 | Analyse fatale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+| Mutants gras/direction/locale/hauteur | rouges | rouges |
+| Mutants groupe/égalité | rouges | rouges |
 
-Les résolutions locales ont été remises à la toolchain haute après la matrice.
-Le lock canonique de l'exemple est inchangé et le worktree était propre avant
-la création du présent rapport.
+La résolution locale a été remise à Flutter 3.47.2 après la matrice ; le lock
+canonique est inchangé.
 
-## Surface lue et checklist `find-bugs`
+## Surface relue et checklist `find-bugs`
 
-Les sept fichiers du diff `a13534c..cac342c` ont été lus intégralement :
-
-- `lib/src/auto_size_text.dart` ;
-- `lib/src/auto_size_text_layout.dart` ;
-- `maintenance/implementation/lot-3-effective-text.md` ;
-- `test/basic_test.dart` ;
-- `test/effective_text_configuration_test.dart` ;
-- `test/text_scaler_test.dart` ;
-- `test/utils.dart`.
-
-Ont aussi été lus l'oracle `effective-text`, le lot 3 de la roadmap, les
-instructions Developing Flutter, Effective Dart, testing et `find-bugs`, ainsi
-que les sources Flutter exactes listées plus haut.
+Le delta correctif complet `02dd06d..a6dea62` et le cumul
+`a13534c..a6dea62` ont été inspectés, notamment les deux sources produit, les
+deux suites ciblées, le journal et les cinq assets/licences. Les instructions
+Developing Flutter, Effective Dart, testing, `find-bugs`, l'oracle
+`effective-text`, le lot 3 de la roadmap et les sources Flutter exactes ont été
+réappliqués.
 
 | Classe de risque | Conclusion |
 |---|---|
-| Logique de layout et accessibilité | Produit conforme dans les probes ; deux preuves P0 permanentes insuffisantes. |
-| Ressources / déni de service | Recherche logarithmique héritée du lot 2 ; tous les painters temporaires sont disposés. |
-| État / frames / concurrence | Configuration reconstruite ; bascules d'InheritedWidget observées ; aucun nouvel état partagé concurrent. |
-| Runtime release | Exclusion mutuelle et valeurs invalides gardées par des branches runtime en plus des assertions. |
-| Compatibilité / API | Deux constructeurs `const`, API historique dépréciée mais conservée, aucune API publique hors lot. |
-| Injection, XSS, auth, CSRF, secrets, crypto, réseau | Hors surface : aucune entrée distante, commande, identité, persistance ou donnée sensible ajoutée. |
+| Mesure/rendu/accessibilité | Parité établie par métriques de vrais render objects et mutants discriminants ; aucun finding ouvert. |
+| Compatibilité | Groupe legacy restauré ; API historique dépréciée mais conservée ; aucune surface publique hors lot. |
+| État/frames/ressources | Configuration reconstruite, bascules observées, painters disposés, aucun nouvel état concurrent. |
+| Assets/licences | Fixtures minimales, déterministes, versionnées, licenciées et absentes du bundle client. |
+| Sécurité | Aucun réseau, secret, identité, persistance, commande, crypto ou entrée distante ajouté. |
 
-Le lot pourra être accepté après remplacement des deux preuves faibles par des
-fixtures métriquement sensibles et relecture de leur rouge sur le parent exact.
 Aucun merge, push, tag ou changement distant n'a été effectué par cette revue.
