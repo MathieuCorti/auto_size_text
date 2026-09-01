@@ -7,20 +7,21 @@ Branche revue : `codex/review-foundation-sdk`
 Parent d'intégration exact :
 `85545b7232fb2cc2dedc9a1da528469c1c76f139`
 
-Tête candidate exacte :
-`547c1aa77691730b19e08922653033d8606614e8`
+Tête candidate corrigée exacte :
+`3ab75602b324e7ccbb562ed24fbf0f9baf370f04`
 
-Plage revue : `85545b7...547c1aa`
+Plage cumulée revue : `85545b7...3ab7560`
 
-Commit original fonctionnellement équivalent :
-`52aacca1daad78cd442d7733235251fff094c78f`. La comparaison à deux arbres
-montre que la seule différence entre l'original et le candidat cherry-pické
-est l'ajout antérieur de
+Delta correctif re-revu : `badb159...3ab7560`
+
+Commit original du lot avant correction, fonctionnellement équivalent à
+`547c1aa` : `52aacca1daad78cd442d7733235251fff094c78f`. La comparaison
+`52aacca..547c1aa` montre que leur seule différence est l'ajout antérieur de
 `maintenance/decisions/example-lock-policy.md` dans la base d'intégration.
 
-## Verdict
+## Verdict final
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
 La fondation technique est reproductible : les deux SDK exacts résolvent le
 package, les 25 tests passent sur minimum et haute, le downgrade minimum passe,
@@ -30,15 +31,17 @@ harness de fuite échoue réellement quand un `TextPainter` n'est pas disposé.
 Les 182 suppressions sont mécaniques et aucun changement produit involontaire
 n'a été trouvé.
 
-Un critère d'acceptation explicite reste cependant non satisfait : les six
-fichiers `*_test.dart` historiques touchés par le formatage ne sont ni groupés
-par unité testée, ni renommés avec des descriptions « should … ».
+Le finding initial sur l'organisation et le nommage des six suites historiques
+a été corrigé par `3ab75602b324e7ccbb562ed24fbf0f9baf370f04`, puis re-revu
+sur son delta et sur le résultat cumulé. Aucun finding actionnable ne reste.
 
-## Finding priorisé
+## Finding initial résolu
 
 ### P2 — Les suites historiques touchées ne respectent pas le standard de test du chantier
 
-**Sévérité : faible, bloquante pour l'acceptation du lot.**
+**Sévérité initiale : faible, bloquante pour l'acceptation du lot.**
+
+**Statut : résolu par `3ab7560`.**
 
 **Fichiers et lignes :**
 
@@ -49,25 +52,20 @@ par unité testée, ni renommés avec des descriptions « should … ».
 - `test/overflow_replacement_test.dart:7` ;
 - `test/preset_font_sizes_test.dart:7`.
 
-**Problème :** ces six fichiers font partie du diff du lot, mais leur `main()`
-contient directement des `testWidgets` et aucun `group()`. Leurs noms restent
-« Only Text », « Group sync », « Respects … », etc., sans la forme obligatoire
-« should … ». Cela contredit le critère commun de la feuille de route, T2 du
-plan outillage et C7 de la revue finale. Les deux nouveaux tests respectent,
-eux, ce standard.
+**Problème initial :** ces six fichiers faisaient partie du diff du lot, mais
+leur `main()` contenait directement des `testWidgets` et aucun `group()`. Leurs
+noms restaient « Only Text », « Group sync », « Respects … », etc., sans la
+forme obligatoire « should … ».
 
-**Preuve :** une recherche ciblée de `main`, `group` et `testWidgets` dans les
-six fichiers ne trouve aucun `group()`. Le diff confirme qu'ils ont tous été
-modifiés par ce lot, même lorsque le changement est seulement mécanique.
+**Correction vérifiée :** chacun des six fichiers contient maintenant un seul
+`group()` nommé d'après l'unité sous test (`AutoSizeText`, `AutoSizeGroup` ou
+`AutoSizeGroupBuilder`). Les 16 descriptions commencent toutes par `should`.
+Le diff `--ignore-all-space --ignore-blank-lines` prouve que seules les six
+enveloppes, les 16 chaînes et l'indentation ont changé : widgets construits,
+helpers, appels, ordre d'exécution et attentes sont identiques.
 
-**Correction exacte attendue :** dans chacun de ces six fichiers, envelopper
-les cas dans un `group()` nommé d'après l'unité sous test (`AutoSizeText`,
-`AutoSizeGroup` ou `AutoSizeGroupBuilder`) et renommer chaque description pour
-commencer par « should … ». Ne modifier ni les widgets construits, ni les
-attentes, ni les helpers, ni le code produit. Rejouer ensuite format haute,
-analyse scoped et tests sur 3.41.0 et 3.47.2.
-
-Aucun autre finding actionnable n'a été identifié.
+Aucun autre finding actionnable n'a été identifié lors de la revue initiale ou
+de la re-review.
 
 ## Matrice indépendante
 
@@ -92,6 +90,31 @@ Aucun autre finding actionnable n'a été identifié.
 | `git diff --check 85545b7...HEAD` | Code 0. |
 | Replays / idempotence | `analysis_options.yaml` conserve le SHA-256 `0c9fe2b745a2481769c610ec01461ba15cf583e0bc7b451d74eccb93b90f7dc6`; manifests et lock haut inchangés. |
 | Arbre canonique après matrice | `git status --short` vide avant création du présent rapport. |
+
+## Re-review du correctif `3ab7560`
+
+Les sept fichiers du delta `badb159...3ab7560` ont été lus intégralement : les
+six suites listées dans le finding et
+`maintenance/implementation/lot-0-foundation.md`. Le diff complet et le diff
+ignorant uniquement espaces/lignes blanches ont été contrôlés. Le résultat
+cumulé `85545b7...3ab7560`, comprenant les 22 fichiers du lot et le présent
+rapport déjà committé, a également été réinspecté.
+
+| Contrôle indépendant après correctif | Résultat |
+|---|---|
+| Comptage structurel | 6 `group()` correctement nommés ; 16/16 descriptions `testWidgets` commencent par `should`. |
+| Équivalence des corps | Aucun widget, helper, appel, ordre ou `expect` modifié ; seulement wrappers, chaînes et indentation. |
+| 3.47.2 — format `lib test example` | Code 0 ; 20 fichiers, 0 changement. |
+| 3.47.2 — analyse scoped | Code 1 attendu ; exactement les 9 informations allowlistées, 0 warning, 0 erreur. |
+| 3.47.2 — suite complète | Code 0 ; 25/25 tests. |
+| 3.41.0 — résolution naturelle d'une extraction propre sans lock exemple | Code 0 ; 26 dépendances racine. |
+| 3.41.0 — analyse scoped | Code 1 attendu ; exactement les mêmes 9 informations allowlistées, 0 warning, 0 erreur. |
+| 3.41.0 — suite complète | Code 0 ; 25/25 tests. |
+| Diff-check delta et cumul | Codes 0 pour `badb159...3ab7560` et `85545b7...3ab7560`. |
+
+Le correctif ne change ni manifests, ni lock, ni harness, ni code produit. Le
+replay du downgrade et du test leak négatif de la revue initiale n'était donc
+pas nécessaire ; leurs graphes et mécanismes sont inchangés.
 
 ## Vérification des neuf diagnostics allowlistés
 
@@ -143,8 +166,8 @@ analyzer global ne masque ces informations.
 
 ## Fichiers lus intégralement
 
-Les 22 fichiers modifiés et toutes leurs lignes supprimées dans le parent ont
-été lus intégralement :
+Les 22 fichiers du lot et toutes leurs lignes supprimées dans le parent ont été
+lus intégralement :
 
 1. `.gitignore` ;
 2. `analysis_options.yaml` ;
@@ -168,6 +191,9 @@ Les 22 fichiers modifiés et toutes leurs lignes supprimées dans le parent ont
 20. `test/preset_font_sizes_test.dart` ;
 21. `test/sdk_floor_api_test.dart` ;
 22. `test/utils.dart`.
+
+Le 23e fichier du résultat cumulé, le présent rapport de revue, a également été
+relu intégralement avant son nouveau commit.
 
 Ont également été lus intégralement : la feuille de route, sa revue finale,
 la vérification du plancher SDK, la décision de lock de l'exemple et le journal
