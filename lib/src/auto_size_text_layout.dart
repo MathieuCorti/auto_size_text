@@ -65,6 +65,104 @@ void _requireFiniteNonNegative(double value, String name) {
   }
 }
 
+final class _CandidateTextScaler extends TextScaler {
+  _CandidateTextScaler({
+    required this.source,
+    required double candidate,
+    required double reference,
+  }) : candidate = _canonicalCandidateZero(candidate),
+       reference = _canonicalCandidateZero(reference) {
+    _requireFiniteNonNegative(this.candidate, 'candidateFontSize');
+    _requireFiniteNonNegative(this.reference, 'referenceFontSize');
+    if (this.reference == 0) {
+      throw ArgumentError.value(
+        this.reference,
+        'referenceFontSize',
+        'must be positive when composing a TextScaler',
+      );
+    }
+  }
+
+  final TextScaler source;
+  final double candidate;
+  final double reference;
+
+  @override
+  double scale(double fontSize) {
+    _requireFiniteNonNegative(fontSize, 'fontSize');
+    final adjustedFontSize = fontSize * candidate / reference;
+    _requireFiniteNonNegative(adjustedFontSize, 'adjustedFontSize');
+    final scaledFontSize = source.scale(adjustedFontSize);
+    _requireFiniteNonNegative(scaledFontSize, 'scaledFontSize');
+    return _canonicalCandidateZero(scaledFontSize);
+  }
+
+  @override
+  double get textScaleFactor {
+    final estimate = scale(reference) / reference;
+    _requireFiniteNonNegative(estimate, 'textScaleFactor');
+    return _canonicalCandidateZero(estimate);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is _CandidateTextScaler &&
+            source == other.source &&
+            candidate == other.candidate &&
+            reference == other.reference;
+  }
+
+  @override
+  int get hashCode => Object.hash(source, candidate, reference);
+}
+
+final class _EffectiveTextConfiguration {
+  const _EffectiveTextConfiguration({
+    required this.baseStyle,
+    required this.measurementStyle,
+    required this.renderStyle,
+    required this.measurementStrutStyle,
+    required this.textAlign,
+    required this.textDirection,
+    required this.locale,
+    required this.softWrap,
+    required this.overflow,
+    required this.maxLines,
+    required this.textWidthBasis,
+    required this.textHeightBehavior,
+    required this.userScaler,
+  });
+
+  final TextStyle baseStyle;
+  final TextStyle measurementStyle;
+  final TextStyle? renderStyle;
+  final StrutStyle? measurementStrutStyle;
+  final TextAlign textAlign;
+  final TextDirection textDirection;
+  final Locale? locale;
+  final bool softWrap;
+  final TextOverflow overflow;
+  final int? maxLines;
+  final TextWidthBasis textWidthBasis;
+  final TextHeightBehavior? textHeightBehavior;
+  final TextScaler userScaler;
+
+  double get referenceFontSize => baseStyle.fontSize!;
+}
+
+final class _AutoSizeTextLayoutResult {
+  const _AutoSizeTextLayoutResult({
+    required this.candidate,
+    required this.effectiveFontSize,
+    required this.fits,
+  });
+
+  final double candidate;
+  final double effectiveFontSize;
+  final bool fits;
+}
+
 final class _CandidateSearchResult {
   const _CandidateSearchResult(this.value, this.fits);
 
