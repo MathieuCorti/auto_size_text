@@ -36,12 +36,10 @@ Le formatage Dart contrôle 42 fichiers sans changement.
 fichiers. Elle inclut les six fichiers `lib/**`, les tests S8 et les cinq
 polices/licences sous `test/assets/fonts/**`. Elle exclut `maintenance/**`,
 `demo/**`, `.github/**`, les lockfiles, les sorties générées, les fichiers
-locaux/secrets et les wrappers Gradle. La commande atteint ensuite la
-validation distante de la version existante, mais l'accès à pub.dev est refusé
-par la politique réseau de l'environnement. Aucun publish réel n'a été tenté.
+locaux/secrets et les wrappers Gradle. La validation du dry-run termine avec
+un code zéro. Aucun publish réel n'a été tenté.
 
-## Risque résiduel
+## État final
 
-La seule preuve manquante est la terminaison distante avec code zéro du
-dry-run Pub. La composition locale de l'archive, les présences requises et les
-exclusions ont été contrôlées sur cette union.
+La composition de l'archive, les présences requises, les exclusions et la
+terminaison avec code zéro du dry-run Pub ont été contrôlées sur cette union.
