@@ -160,9 +160,7 @@ final class _CandidateTextScaler extends TextScaler {
     _requireFiniteNonNegative(fontSize, 'fontSize');
     final adjustedFontSize = fontSize * candidate / reference;
     _requireFiniteNonNegative(adjustedFontSize, 'adjustedFontSize');
-    final scaledFontSize = source.scale(adjustedFontSize);
-    _requireFiniteNonNegative(scaledFontSize, 'scaledFontSize');
-    return _canonicalCandidateZero(scaledFontSize);
+    return _scaleUserFontSize(source, adjustedFontSize, name: 'scaledFontSize');
   }
 
   @override
@@ -539,9 +537,31 @@ double _checkedEffectiveFontSize(
   double candidate, {
   required String name,
 }) {
-  final effectiveFontSize = scaler.scale(candidate);
-  _requireFiniteNonNegative(effectiveFontSize, name);
-  return _canonicalCandidateZero(effectiveFontSize);
+  return _scaleUserFontSize(scaler, candidate, name: name);
+}
+
+final class _AutoSizeTextUserScalerFailure implements Exception {
+  const _AutoSizeTextUserScalerFailure(this.original, this.originalStackTrace);
+
+  final Object original;
+  final StackTrace originalStackTrace;
+}
+
+double _scaleUserFontSize(
+  TextScaler scaler,
+  double fontSize, {
+  required String name,
+}) {
+  try {
+    final scaledFontSize = scaler.scale(fontSize);
+    _requireFiniteNonNegative(scaledFontSize, name);
+    return _canonicalCandidateZero(scaledFontSize);
+  } catch (error, stackTrace) {
+    Error.throwWithStackTrace(
+      _AutoSizeTextUserScalerFailure(error, stackTrace),
+      stackTrace,
+    );
+  }
 }
 
 final class _CandidateSearchResult {

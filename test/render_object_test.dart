@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +16,21 @@ final class _ThrowingTextScaler extends TextScaler {
 
   @override
   double get textScaleFactor => 1;
+}
+
+final class _DryThrowingTextSpan extends TextSpan {
+  const _DryThrowingTextSpan(this.error);
+
+  final Object error;
+
+  @override
+  void build(
+    ui.ParagraphBuilder builder, {
+    TextScaler textScaler = TextScaler.noScaling,
+    List<PlaceholderDimensions>? dimensions,
+  }) {
+    throw error;
+  }
 }
 
 void main() {
@@ -325,21 +342,52 @@ void main() {
         0.0,
       ];
 
+      final dryLayoutFailure = StateError('dry layout scaler failure');
+      rebuild(() => scaler = _ThrowingTextScaler(dryLayoutFailure));
+      await tester.pump(null, EnginePhase.build);
+      expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
+      expect(metrics.first(), fallbacks.first);
+      expect(tester.takeException(), same(dryLayoutFailure));
+      expect(tester.takeException(), isNull);
+
+      rebuild(() => scaler = TextScaler.noScaling);
+      await tester.pump(null, EnginePhase.build);
+      expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
       for (var index = 0; index < metrics.length; index += 1) {
+        expect(metrics[index](), validMetrics[index]);
+      }
+
+      for (var index = 1; index < metrics.length; index += 1) {
         final original = StateError('scaler failure $index');
         rebuild(() => scaler = _ThrowingTextScaler(original));
         await tester.pump(null, EnginePhase.build);
-        expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
 
-        expect(metrics[index](), fallbacks[index]);
-        expect(tester.takeException(), same(original));
+        final previousOnError = FlutterError.onError;
+        final reports = <FlutterErrorDetails>[];
+        FlutterError.onError = reports.add;
+        try {
+          expect(metrics[index](), fallbacks[index]);
+        } finally {
+          FlutterError.onError = previousOnError;
+        }
+        expect(reports, isNotEmpty);
+        expect(
+          reports.every((details) => identical(details.exception, original)),
+          isTrue,
+        );
+        expect(
+          reports.every(
+            (details) =>
+                details.stack.toString().contains('_ThrowingTextScaler.scale'),
+          ),
+          isTrue,
+        );
         expect(tester.takeException(), isNull);
 
         rebuild(() => scaler = TextScaler.noScaling);
         await tester.pump(null, EnginePhase.build);
         expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
         expect(metrics[index](), validMetrics[index]);
-        expect(tester.takeException(), isNull);
       }
     });
 
@@ -365,9 +413,55 @@ void main() {
       );
 
       rebuild(() => scaler = _ThrowingTextScaler(original));
-      await tester.pump();
+      final previousOnError = FlutterError.onError;
+      final reports = <FlutterErrorDetails>[];
+      FlutterError.onError = (details) {
+        reports.add(details);
+        previousOnError?.call(details);
+      };
+      try {
+        await tester.pump();
+      } finally {
+        FlutterError.onError = previousOnError;
+      }
 
+      expect(reports, hasLength(1));
+      expect(reports.single.exception, same(original));
+      expect(
+        reports.single.stack.toString(),
+        contains('_ThrowingTextScaler.scale'),
+      );
       expect(tester.takeException(), same(original));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('should not catch a non-scaler dry failure', (tester) async {
+      final original = StateError('paragraph failure');
+      final key = GlobalKey();
+      late StateSetter rebuild;
+      TextSpan span = const TextSpan(text: 'valid');
+      await tester.pumpWidget(
+        _host(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return AutoSizeText.rich(span, key: key);
+            },
+          ),
+        ),
+      );
+
+      final render = tester.renderObject<RenderBox>(find.byKey(key));
+      rebuild(() => span = _DryThrowingTextSpan(original));
+      await tester.pump(null, EnginePhase.build);
+
+      final wasCheckingIntrinsics = RenderObject.debugCheckingIntrinsics;
+      RenderObject.debugCheckingIntrinsics = true;
+      try {
+        expect(() => render.getMinIntrinsicWidth(40), throwsA(same(original)));
+      } finally {
+        RenderObject.debugCheckingIntrinsics = wasCheckingIntrinsics;
+      }
       expect(tester.takeException(), isNull);
     });
   });

@@ -154,19 +154,11 @@ final class _RenderAutoSizeText extends RenderProxyBox {
     late final _AutoSizeTextSelection selection;
     try {
       selection = _snapshot.select(constraints);
+    } on _AutoSizeTextUserScalerFailure catch (failure) {
+      _reportWetLayoutFailure(failure.original, failure.originalStackTrace);
+      return;
     } catch (error, stackTrace) {
-      invokeLayoutCallback<BoxConstraints>((_) {
-        layoutFailureCallback?.call();
-      });
-      size = constraints.smallest;
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'auto_size_text',
-          context: ErrorDescription('while measuring an AutoSizeText'),
-        ),
-      );
+      _reportWetLayoutFailure(error, stackTrace);
       return;
     }
     invokeLayoutCallback<BoxConstraints>((_) {
@@ -183,44 +175,110 @@ final class _RenderAutoSizeText extends RenderProxyBox {
     _onLayout(selection.localEffectiveFontSize);
   }
 
-  @override
-  Size computeDryLayout(BoxConstraints constraints) {
-    return _snapshot.select(constraints).measurement.renderSize;
+  void _reportWetLayoutFailure(Object error, StackTrace stackTrace) {
+    invokeLayoutCallback<BoxConstraints>((_) {
+      layoutFailureCallback?.call();
+    });
+    size = constraints.smallest;
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'auto_size_text',
+        context: ErrorDescription('while measuring an AutoSizeText'),
+      ),
+    );
+  }
+
+  T _recoverUserScalerFailure<T>({
+    required T Function() compute,
+    required T fallback,
+    required String operation,
+  }) {
+    try {
+      return compute();
+    } on _AutoSizeTextUserScalerFailure catch (failure) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: failure.original,
+          stack: failure.originalStackTrace,
+          library: 'auto_size_text',
+          context: ErrorDescription('while $operation for an AutoSizeText'),
+        ),
+      );
+      return fallback;
+    }
   }
 
   @override
-  double computeDryBaseline(BoxConstraints constraints, TextBaseline baseline) {
+  Size computeDryLayout(BoxConstraints constraints) {
+    return _recoverUserScalerFailure(
+      compute: () => _snapshot.select(constraints).measurement.renderSize,
+      fallback: constraints.constrain(Size.zero),
+      operation: 'computing dry layout',
+    );
+  }
+
+  @override
+  double? computeDryBaseline(
+    BoxConstraints constraints,
+    TextBaseline baseline,
+  ) {
     // RenderParagraph's dry baseline is its alphabetic paragraph baseline for
     // both TextBaseline values. Match that public render-object contract.
-    return _snapshot.select(constraints).measurement.baseline;
+    return _recoverUserScalerFailure<double?>(
+      compute: () => _snapshot.select(constraints).measurement.baseline,
+      fallback: null,
+      operation: 'computing a dry baseline',
+    );
   }
 
   @override
   double computeMinIntrinsicWidth(double height) {
-    return _snapshot
-        .select(BoxConstraints(maxHeight: height))
-        .measurement
-        .minIntrinsicWidth;
+    return _recoverUserScalerFailure(
+      compute: () => _snapshot
+          .select(BoxConstraints(maxHeight: height))
+          .measurement
+          .minIntrinsicWidth,
+      fallback: 0,
+      operation: 'computing minimum intrinsic width',
+    );
   }
 
   @override
   double computeMaxIntrinsicWidth(double height) {
-    return _snapshot
-        .select(BoxConstraints(maxHeight: height))
-        .measurement
-        .maxIntrinsicWidth;
+    return _recoverUserScalerFailure(
+      compute: () => _snapshot
+          .select(BoxConstraints(maxHeight: height))
+          .measurement
+          .maxIntrinsicWidth,
+      fallback: 0,
+      operation: 'computing maximum intrinsic width',
+    );
   }
 
   @override
   double computeMinIntrinsicHeight(double width) {
-    final selection = _snapshot.select(BoxConstraints(maxWidth: width));
-    return _snapshot.intrinsicHeight(selection.renderCandidate, width);
+    return _recoverUserScalerFailure(
+      compute: () {
+        final selection = _snapshot.select(BoxConstraints(maxWidth: width));
+        return _snapshot.intrinsicHeight(selection.renderCandidate, width);
+      },
+      fallback: 0,
+      operation: 'computing minimum intrinsic height',
+    );
   }
 
   @override
   double computeMaxIntrinsicHeight(double width) {
-    final selection = _snapshot.select(BoxConstraints(maxWidth: width));
-    return _snapshot.intrinsicHeight(selection.renderCandidate, width);
+    return _recoverUserScalerFailure(
+      compute: () {
+        final selection = _snapshot.select(BoxConstraints(maxWidth: width));
+        return _snapshot.intrinsicHeight(selection.renderCandidate, width);
+      },
+      fallback: 0,
+      operation: 'computing maximum intrinsic height',
+    );
   }
 }
 
