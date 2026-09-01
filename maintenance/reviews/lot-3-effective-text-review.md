@@ -12,9 +12,13 @@ Première revue : `9b948eac2aa3f6c47900e3971218fa8f9c5e9902`
 
 Candidat corrigé : `982117dc37a4c57d306b601319446f5d16a7125f`
 
-Périmètre : relecture cumulative `a13534c...982117d` et relecture corrective
-`9b948ea..982117d`, selon `developing-flutter`, `effective-dart/testing` et
-`find-bugs`. Aucun correctif produit n'a été écrit par cette revue.
+Correctif de provenance de licence :
+`7ea0de86169c9e8c5a331c6ffc07b4ec50d16557`
+
+Périmètre : relecture cumulative `a13534c...7ea0de8`, relecture corrective
+produit `9b948ea..982117d` et relecture licence `6da3e9d..7ea0de8`, selon
+`developing-flutter`, `effective-dart/testing` et `find-bugs`. Aucun correctif
+produit n'a été écrit par cette revue.
 
 ## Verdict final
 
@@ -30,6 +34,10 @@ la configuration pré/post-overrides, la recherche et les limites des lots 4
 et 5 restent conformes à l'oracle. Les matrices proportionnées sont vertes sur
 Flutter 3.41.0 et 3.47.2. Le contrôle final ne trouve ni modification hors lot,
 ni shim de compatibilité, ni fichier temporaire résiduel.
+
+La relecture finale du correctif licence confirme un delta d'un seul fichier,
+une provenance cohérente avec la fonte source et l'absence de tout changement
+de code, test ou TTF. Le verdict reste donc inchangé.
 
 ## Résolution des findings initiaux
 
@@ -145,7 +153,7 @@ projection de groupe ou convergence. Il n'anticipe donc ni le lot 4 ni le lot
 
 Les trois TTF sont des sous-ensembles privés de test chargés avec
 `FontLoader`; ils ne sont déclarés dans aucun manifeste d'assets et n'entrent
-pas dans le bundle client. Le total fontes et licences est de 26 212 octets.
+pas dans le bundle client. Le total fontes et licences est de 26 163 octets.
 
 | Fixture | Taille | Unicode / glyphes | SHA-256 |
 |---|---:|---:|---|
@@ -161,9 +169,32 @@ avances directionnelles distinctes et la substitution `locl` de U+066C
 seules tables et glyphes requis par les preuves.
 
 `LICENSE-Roboto.txt` est identique octet pour octet à la licence Apache-2.0
-des artefacts des deux SDK (`cfc7749...`). La licence OFL-1.1 complète de Noto,
-avec le copyright Google 2014, est adjacente (`e272933...`). Aucun fichier de
-licence, hash ou binaire annoncé ne manque.
+des artefacts des deux SDK (`cfc7749...`). La licence Noto adjacente reproduit
+le texte OFL-1.1 du fichier `LICENCE` du dépôt historique archivé
+`notofonts/NotoNaskhArabic` ; son SHA-256 local est
+`c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f`.
+La table `name` du TTF sous-ensemble conserve la notice
+`Copyright 2014 Google Inc. All Rights Reserved.`, ainsi que le nom, la version
+1.07 et le foundry `GOOG`. La licence et la notice requises restent donc
+distribuées ensemble. Aucun fichier de licence, hash ou binaire annoncé ne
+manque.
+
+### Relecture du correctif licence `7ea0de8`
+
+Le diff `6da3e9d..7ea0de8` contient uniquement
+`test/assets/fonts/LICENSE-NotoNaskhArabic.txt` : 26 lignes ajoutées et 26
+retirées pour aligner le texte et son reflow sur la provenance historique.
+Les comparaisons de blobs et `git diff --quiet` confirment que :
+
+- tous les fichiers sous `lib/` sont inchangés ;
+- tous les tests sont inchangés ;
+- les trois TTF conservent exactement leurs blobs et leurs SHA-256 ;
+- aucun manifeste, lock, journal d'implémentation ou autre fichier n'est
+  modifié.
+
+Le sanity ciblé sur Flutter 3.47.2, cas locale `ar/fa` avec substitution
+`locl`, est vert 1/1. Il recharge donc le TTF concerné et confirme que la
+fixture métrique reste exploitable après le changement purement attributif.
 
 ## Preuves rouges et capacité d'échouer
 
