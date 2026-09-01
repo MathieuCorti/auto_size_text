@@ -207,6 +207,87 @@ void main() {
     );
 
     testWidgets(
+      'should retain one membership when its domain and scaler change',
+      (tester) async {
+        final group = AutoSizeGroup();
+        const changingWidgetKey = ValueKey<String>('changing-widget');
+        const changingTextKey = ValueKey<String>('changing-text');
+        const survivorTextKey = ValueKey<String>('domain-survivor');
+        var presets = <double>[20];
+        TextScaler scaler = TextScaler.noScaling;
+        late StateSetter update;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  children: <Widget>[
+                    AutoSizeText(
+                      '',
+                      key: changingWidgetKey,
+                      textKey: changingTextKey,
+                      style: const TextStyle(fontSize: 20),
+                      presetFontSizes: presets,
+                      textScaler: scaler,
+                      group: group,
+                    ),
+                    AutoSizeText(
+                      '',
+                      textKey: survivorTextKey,
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: group,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(changingTextKey))),
+          20,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          20,
+        );
+
+        update(() {
+          presets = <double>[15];
+          scaler = const TextScaler.linear(2);
+        });
+        await tester.pump();
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(changingTextKey))),
+          30,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          20,
+        );
+
+        update(() => presets = <double>[25]);
+        await tester.pump();
+        await tester.pump();
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(changingTextKey))),
+          50,
+        );
+        expect(
+          effectiveFontSize(tester.widget(find.byKey(survivorTextKey))),
+          40,
+        );
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      },
+    );
+
+    testWidgets(
       'should raise the limit once and ignore a member disposed before notify',
       (tester) async {
         final group = AutoSizeGroup();

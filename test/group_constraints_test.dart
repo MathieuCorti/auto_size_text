@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -43,14 +45,28 @@ final class _CappedTextScaler extends TextScaler {
   double get textScaleFactor => 99;
 }
 
-final class _CountingIdentityTextScaler extends TextScaler {
-  _CountingIdentityTextScaler();
+final class _ZeroTextScaler extends TextScaler {
+  const _ZeroTextScaler();
 
+  @override
+  double scale(double fontSize) => 0;
+
+  @override
+  double get textScaleFactor => 99;
+}
+
+final class _ScaleCounter {
   int calls = 0;
+}
+
+final class _CountingIdentityTextScaler extends TextScaler {
+  const _CountingIdentityTextScaler(this.counter);
+
+  final _ScaleCounter counter;
 
   @override
   double scale(double fontSize) {
-    calls += 1;
+    counter.calls += 1;
     return fontSize;
   }
 
@@ -66,6 +82,11 @@ final class _ProjectionInvalidTextScaler extends TextScaler {
 
   @override
   double get textScaleFactor => 99;
+}
+
+final class _GroupMicrotaskCounts {
+  int scheduled = 0;
+  int run = 0;
 }
 
 Widget _host(List<Widget> children) {
@@ -431,6 +452,51 @@ void main() {
       },
     );
 
+    testWidgets('should preserve the local candidate on a zero plateau', (
+      tester,
+    ) async {
+      final group = AutoSizeGroup();
+      const groupedKey = ValueKey<String>('zero-plateau-grouped');
+      const standaloneKey = ValueKey<String>('zero-plateau-standalone');
+      const source = TextSpan(text: 'A', style: TextStyle(fontSize: 10));
+
+      await _pumpGroup(
+        tester,
+        _host(<Widget>[
+          AutoSizeText.rich(
+            source,
+            textKey: groupedKey,
+            style: const TextStyle(fontFamily: 'Ahem', fontSize: 20),
+            presetFontSizes: const <double>[30, 20, 10],
+            textScaler: const _ZeroTextScaler(),
+            group: group,
+          ),
+          AutoSizeText(
+            '',
+            style: const TextStyle(fontSize: 0),
+            presetFontSizes: const <double>[0],
+            textScaler: TextScaler.noScaling,
+            group: group,
+          ),
+          AutoSizeText.rich(
+            source,
+            textKey: standaloneKey,
+            style: const TextStyle(fontFamily: 'Ahem', fontSize: 20),
+            presetFontSizes: const <double>[30, 20, 10],
+            textScaler: const _ZeroTextScaler(),
+          ),
+        ]),
+      );
+
+      final grouped = _text(tester, groupedKey);
+      final standalone = _text(tester, standaloneKey);
+      expect(grouped.textScaler, standalone.textScaler);
+
+      await tester.pump();
+      expect(_text(tester, groupedKey).textScaler, standalone.textScaler);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+
     testWidgets(
       'should base overflow replacement only on the local fit result',
       (tester) async {
@@ -496,22 +562,44 @@ void main() {
       'should reject an invalid scaler result reached during projection',
       (tester) async {
         final group = AutoSizeGroup();
+        const projectedKey = ValueKey<String>('invalid-projection');
+        TextScaler scaler = const _ProjectionInvalidTextScaler();
+        late StateSetter update;
 
         await tester.pumpWidget(
           _host(<Widget>[
-            AutoSizeText(
-              '',
-              style: const TextStyle(fontSize: 50),
-              presetFontSizes: const <double>[50, 40, 30, 20, 10],
-              textScaler: const _ProjectionInvalidTextScaler(),
-              group: group,
-            ),
-            AutoSizeText(
-              '',
-              style: const TextStyle(fontSize: 25),
-              presetFontSizes: const <double>[25],
-              textScaler: TextScaler.noScaling,
-              group: group,
+            StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: AutoSizeText(
+                        '',
+                        textKey: projectedKey,
+                        style: const TextStyle(fontSize: 50),
+                        presetFontSizes: const <double>[50, 40, 30, 20, 10],
+                        textScaler: scaler,
+                        group: group,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: AutoSizeText(
+                        '',
+                        style: const TextStyle(fontSize: 25),
+                        presetFontSizes: const <double>[25],
+                        textScaler: TextScaler.noScaling,
+                        group: group,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ]),
         );
@@ -519,6 +607,90 @@ void main() {
 
         await tester.pump();
         expect(tester.takeException(), isA<ArgumentError>());
+
+        update(() => scaler = TextScaler.noScaling);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(_effectiveSize(tester, projectedKey), 20);
+      },
+    );
+
+    testWidgets(
+      'should schedule and run one group microtask for synchronous decreases',
+      (tester) async {
+        final group = AutoSizeGroup();
+        var firstSize = 40.0;
+        var secondSize = 40.0;
+        late StateSetter update;
+
+        await _pumpGroup(
+          tester,
+          _host(<Widget>[
+            StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    AutoSizeText(
+                      '',
+                      style: TextStyle(fontSize: firstSize),
+                      presetFontSizes: <double>[firstSize],
+                      textScaler: TextScaler.noScaling,
+                      group: group,
+                    ),
+                    AutoSizeText(
+                      '',
+                      style: TextStyle(fontSize: secondSize),
+                      presetFontSizes: <double>[secondSize],
+                      textScaler: TextScaler.noScaling,
+                      group: group,
+                    ),
+                    AutoSizeText(
+                      '',
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 30],
+                      textScaler: TextScaler.noScaling,
+                      group: group,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ]),
+        );
+
+        final counts = _GroupMicrotaskCounts();
+        await runZoned(
+          () async {
+            update(() {
+              firstSize = 35;
+              secondSize = 30;
+            });
+            await tester.pump();
+          },
+          zoneSpecification: ZoneSpecification(
+            scheduleMicrotask: (self, parent, zone, task) {
+              final isGroupTask = StackTrace.current.toString().contains(
+                'auto_size_group.dart',
+              );
+              if (!isGroupTask) {
+                parent.scheduleMicrotask(zone, task);
+                return;
+              }
+              counts.scheduled += 1;
+              parent.scheduleMicrotask(zone, () {
+                counts.run += 1;
+                task();
+              });
+            },
+          ),
+        );
+
+        expect(<int>[counts.scheduled, counts.run], orderedEquals(<int>[1, 1]));
+        await tester.pump();
+        await tester.pump();
+        expect(tester.binding.hasScheduledFrame, isFalse);
       },
     );
 
@@ -526,20 +698,25 @@ void main() {
       'should keep projection logarithmic for a trillion virtual candidates',
       (tester) async {
         final group = AutoSizeGroup();
-        final scaler = _CountingIdentityTextScaler();
+        final counter = _ScaleCounter();
+        final scaler = _CountingIdentityTextScaler(counter);
         const projectedKey = ValueKey<String>('large-projection');
 
         await _pumpGroup(
           tester,
           _host(<Widget>[
-            AutoSizeText(
-              '',
-              textKey: projectedKey,
-              style: const TextStyle(fontSize: 100000000000.1),
-              minFontSize: 0.1,
-              stepGranularity: 0.1,
-              textScaler: scaler,
-              group: group,
+            SizedBox(
+              width: 100,
+              height: 100,
+              child: AutoSizeText(
+                '',
+                textKey: projectedKey,
+                style: const TextStyle(fontSize: 100000000000.1),
+                minFontSize: 0.1,
+                stepGranularity: 0.1,
+                textScaler: scaler,
+                group: group,
+              ),
             ),
             AutoSizeText(
               '',
@@ -551,8 +728,8 @@ void main() {
           ]),
         );
 
-        expect(_effectiveSize(tester, projectedKey), 50);
-        expect(scaler.calls, lessThan(200));
+        expect(_effectiveSize(tester, projectedKey), 49.900000000000006);
+        expect(counter.calls, lessThan(200));
       },
     );
   });

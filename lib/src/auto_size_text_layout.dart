@@ -233,6 +233,16 @@ final class _AutoSizeTextLayoutResult {
   final bool fits;
 }
 
+double _checkedEffectiveFontSize(
+  TextScaler scaler,
+  double candidate, {
+  required String name,
+}) {
+  final effectiveFontSize = scaler.scale(candidate);
+  _requireFiniteNonNegative(effectiveFontSize, name);
+  return _canonicalCandidateZero(effectiveFontSize);
+}
+
 final class _CandidateSearchResult {
   const _CandidateSearchResult(this.value, this.fits);
 

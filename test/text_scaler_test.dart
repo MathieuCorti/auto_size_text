@@ -369,7 +369,7 @@ void main() {
     });
 
     testWidgets(
-      'should preserve effective sizes for heterogeneous legacy groups',
+      'should keep heterogeneous legacy members in their own domains',
       (tester) async {
         final group = AutoSizeGroup();
         await _pump(
@@ -404,7 +404,7 @@ void main() {
         expect(paragraphs, hasLength(2));
         expect(
           paragraphs.map(_renderedRootSize),
-          orderedEquals(<double>[20, 20]),
+          orderedEquals(<double>[20, 30]),
         );
       },
     );
