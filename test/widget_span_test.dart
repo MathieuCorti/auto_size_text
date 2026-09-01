@@ -973,5 +973,52 @@ void main() {
       expect(lifecycle.inits, 1);
       expect(lifecycle.disposes, 0);
     });
+
+    testWidgets('should keep shared GlobalKeys exclusive during wet rebuilds', (
+      tester,
+    ) async {
+      final sharedKey = GlobalKey();
+      late StateSetter setHostState;
+      var revision = 0;
+
+      await tester.pumpWidget(
+        _host(
+          StatefulBuilder(
+            builder: (context, setState) {
+              setHostState = setState;
+              return SizedBox(
+                width: 1,
+                height: 1,
+                child: AutoSizeText.rich(
+                  TextSpan(
+                    text: revision.isEven ? 'MMMM' : 'NNNN',
+                    children: <InlineSpan>[
+                      WidgetSpan(
+                        child: SizedBox(
+                          key: sharedKey,
+                          width: 20,
+                          height: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                  minFontSize: 20,
+                  maxFontSize: 20,
+                  maxLines: 1,
+                  overflowReplacement: SizedBox(key: sharedKey),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(sharedKey), findsOneWidget);
+      setHostState(() => revision += 1);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(sharedKey), findsOneWidget);
+    });
   });
 }
