@@ -20,6 +20,8 @@ final class _AutoSizeTextRenderWidget extends RenderObjectWidget {
     return snapshot.buildParagraph(selection.renderCandidate);
   }
 
+  Widget paragraphFor(double candidate) => snapshot.buildParagraph(candidate);
+
   @override
   RenderObjectElement createElement() => _AutoSizeTextRenderElement(this);
 
@@ -44,6 +46,7 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
   _AutoSizeTextRenderElement(_AutoSizeTextRenderWidget super.widget);
 
   Element? _child;
+  final GlobalKey _replacementKey = GlobalKey();
 
   @override
   _RenderAutoSizeText get renderObject =>
@@ -59,8 +62,9 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
 
   @override
   void forgetChild(Element child) {
-    assert(child == _child);
-    _child = null;
+    if (child == _child) {
+      _child = null;
+    }
     super.forgetChild(child);
   }
 
@@ -69,6 +73,7 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
     super.mount(parent, newSlot);
     renderObject
       ..layoutCallback = _rebuildChild
+      ..paragraphLayoutCallback = _rebuildParagraph
       ..layoutFailureCallback = _clearChild;
   }
 
@@ -77,6 +82,7 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
     super.update(newWidget);
     renderObject
       ..layoutCallback = _rebuildChild
+      ..paragraphLayoutCallback = _rebuildParagraph
       ..layoutFailureCallback = _clearChild;
   }
 
@@ -84,6 +90,7 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
   void unmount() {
     renderObject
       ..layoutCallback = null
+      ..paragraphLayoutCallback = null
       ..layoutFailureCallback = null;
     super.unmount();
   }
@@ -91,7 +98,22 @@ final class _AutoSizeTextRenderElement extends RenderObjectElement {
   void _rebuildChild(_AutoSizeTextSelection selection) {
     owner!.buildScope(this, () {
       final renderWidget = widget as _AutoSizeTextRenderWidget;
-      _child = updateChild(_child, renderWidget.childFor(selection), null);
+      final keepsReplacement =
+          renderWidget.overflowReplacement != null && !selection.localFits;
+      final nextWidget = keepsReplacement
+          ? KeyedSubtree(
+              key: _replacementKey,
+              child: renderWidget.childFor(selection),
+            )
+          : renderWidget.childFor(selection);
+      _child = updateChild(_child, nextWidget, null);
+    });
+  }
+
+  void _rebuildParagraph(double candidate) {
+    owner!.buildScope(this, () {
+      final renderWidget = widget as _AutoSizeTextRenderWidget;
+      _child = updateChild(_child, renderWidget.paragraphFor(candidate), null);
     });
   }
 
@@ -147,13 +169,35 @@ final class _RenderAutoSizeText extends RenderProxyBox {
   }
 
   ValueChanged<_AutoSizeTextSelection>? layoutCallback;
+  ValueChanged<double>? paragraphLayoutCallback;
   VoidCallback? layoutFailureCallback;
 
   @override
   void performLayout() {
     late final _AutoSizeTextSelection selection;
     try {
-      selection = _snapshot.select(constraints);
+      if (_snapshot.hasWidgetSpans) {
+        invokeLayoutCallback<BoxConstraints>((_) {
+          paragraphLayoutCallback?.call(_snapshot.minimumCandidate);
+        });
+        final paragraphHost = child;
+        if (paragraphHost == null) {
+          throw StateError('The inline paragraph was not mounted for layout.');
+        }
+        final paragraph = _findInlineParagraph(paragraphHost);
+        selection = _snapshot.selectWet(constraints, paragraphHost, paragraph, (
+          candidate,
+        ) {
+          invokeLayoutCallback<BoxConstraints>((_) {
+            paragraph.configureCandidate(
+              _snapshot.resolvedText(candidate),
+              _snapshot.candidateScaler(candidate),
+            );
+          });
+        });
+      } else {
+        selection = _snapshot.select(constraints);
+      }
     } on _AutoSizeTextUserScalerFailure catch (failure) {
       _reportWetLayoutFailure(failure.original, failure.originalStackTrace);
       return;
@@ -173,6 +217,18 @@ final class _RenderAutoSizeText extends RenderProxyBox {
       size = constraints.constrain(renderChild.size);
     }
     _onLayout(selection.localEffectiveFontSize);
+  }
+
+  _RenderAutoSizeInlineParagraph _findInlineParagraph(RenderBox root) {
+    RenderBox current = root;
+    while (current is! _RenderAutoSizeInlineParagraph) {
+      if (current case final RenderProxyBox proxy when proxy.child != null) {
+        current = proxy.child!;
+      } else {
+        throw StateError('The inline paragraph was not mounted for layout.');
+      }
+    }
+    return current;
   }
 
   void _reportWetLayoutFailure(Object error, StackTrace stackTrace) {

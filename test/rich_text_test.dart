@@ -629,22 +629,35 @@ void main() {
     );
 
     testWidgets(
-      'should keep WidgetSpan unsupported without cloning its source',
+      'should support WidgetSpan without cloning its source widget span',
       (tester) async {
+        final textKey = GlobalKey();
         const widgetSpan = WidgetSpan(child: SizedBox(width: 10, height: 10));
         const source = TextSpan(children: <InlineSpan>[widgetSpan]);
 
         await tester.pumpWidget(
-          const MediaQuery(
-            data: MediaQueryData(letterSpacingOverride: 2),
+          MediaQuery(
+            data: const MediaQueryData(letterSpacingOverride: 2),
             child: Directionality(
               textDirection: TextDirection.ltr,
-              child: AutoSizeText.rich(source, style: TextStyle(fontSize: 20)),
+              child: AutoSizeText.rich(
+                source,
+                textKey: textKey,
+                style: const TextStyle(fontSize: 20),
+              ),
             ),
           ),
         );
 
-        expect(tester.takeException(), isA<UnsupportedError>());
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byKey(textKey),
+        );
+        final renderedSource = (paragraph.text as TextSpan).children!.single;
+        expect(
+          identical((renderedSource as TextSpan).children!.single, widgetSpan),
+          isTrue,
+        );
+        expect(tester.takeException(), isNull);
         expect(identical(source.children!.single, widgetSpan), isTrue);
       },
     );
