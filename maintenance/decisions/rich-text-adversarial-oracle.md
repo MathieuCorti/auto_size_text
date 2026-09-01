@@ -63,9 +63,40 @@ temporaires exécutés sur les deux versions ont en outre établi :
   listes, conserve recognizer, curseur, callbacks et métadonnées, mais garde un
   sous-type de `TextSpan` et un `WidgetSpan` par identité ;
 - deux demi-surrogates placées dans deux `TextSpan.text` distincts sont
-  concaténées en un emoji par `toPlainText`, mais sont ajoutées au paragraphe en
-  deux appels invalides et rendues comme remplacements. Un flattening les
-  transformerait à tort en un seul emoji valide.
+  concaténées en un emoji par `toPlainText`, mais chaque ajout au paragraphe
+  produit `ArgumentError: string is not well-formed UTF-16`. `TextSpan.build`
+  signale l'erreur puis substitue U+FFFD ; le binding widget expose les erreurs
+  et invalide le témoin. Ce fixture est donc exclu des tests du lot 4.
+
+### Arbitrage du probe split-surrogate
+
+Le cas minimal rejoué était exactement :
+
+```dart
+const splitSurrogateSpan = TextSpan(
+  text: '\ud83d',
+  children: <InlineSpan>[TextSpan(text: '\ude00')],
+);
+```
+
+| SDK exact | Commit Flutter | `TextPainter.layout` instrumenté | `Text.rich` / `RenderParagraph` |
+|---|---|---|---|
+| 3.41.0 | `44a626f4f0027bc38a46dc68aed5964b05a83c18` | Deux `ArgumentError` transmises à `FlutterError.onError`, puis largeur de deux U+FFFD si le handler les capture | Deux exceptions visibles du binding ; témoin invalide |
+| 3.47.2 | `d3b14c876900e553bc736ca19295fc09e3853e8e` | Même résultat | Même résultat |
+
+La pile commune part de `_NativeParagraphBuilder.addText`
+(`dart:ui/text.dart:3721` en 3.41, `:3724` en 3.47), traverse
+`TextSpan.build` (`text_span.dart:298`, puis `:316` pour l'enfant),
+`TextPainter._createParagraph` (`text_painter.dart:1203`) et
+`TextPainter.layout` (`:1264`). Le chemin widget continue par
+`RenderParagraph._layoutTextWithConstraints` / `performLayout` : lignes
+852/915 en 3.41 et 903/966 en 3.47.
+
+Le probe initial utilisait un `test` non widget, ne remplaçait pas
+`FlutterError.onError` et ne lisait que la largeur après substitution. Il n'a
+donc pas aplati l'arbre et n'utilisait pas une autre version, mais il a masqué
+les erreurs signalées par `TextSpan.build`. La conclusion métrique qui en avait
+été tirée est retirée.
 
 Les valeurs métriques des probes ne sont pas des golden numbers. Les tests
 committés dérivent leurs seuils de témoins `Text.rich` indépendants avec les
@@ -93,7 +124,7 @@ fontes déterministes du dépôt.
 | Arbre imbriqué dont le texte racine précède ses enfants | Le parent synthétique porte le style effectif et contient le span source dans un enfant unique. Texte, ordre, profondeur et limites de runs restent inchangés. | Comparer topologie, boxes et métriques au `Text.rich` témoin. Tue le clone racine `style: source.style ?? parentStyle` et tout flattening. | Aucune normalisation Unicode ni fusion de spans équivalents. |
 | Span racine avec seulement `color`, parent effectif 30 | Le run hérite taille, famille, poids, hauteur et spacing du parent, puis scale comme un run de taille 30. | Contrainte entre deux candidats témoins, puis égalité des boxes/baseline. Tue la prise de `source.style?.fontSize` comme référence. | Le fallback de fonte suit Flutter ; le lot ne choisit pas une fonte Unicode. |
 | Emoji complet dans un span imbriqué avant une frontière | L'emoji compte deux code units. Les frontières après lui sont décalées de deux, jamais d'une ; aucune sélection ne commence ou finit au milieu de la paire. | Préfixe `A😀`, plages attendues `[0, 3)` puis offsets suivants ; une sélection d'une moitié retourne zéro box. Tue un scanner en runes/graphemes dont les offsets sont réutilisés comme UTF-16. | Les graphèmes ne définissent pas les séparateurs ; ils servent seulement à rendre l'erreur d'unité observable. |
-| Demi-surrogate haute et basse dans deux `TextSpan.text` voisins | `toPlainText(false)` a deux code units, mais l'arbre fidèle conserve deux ajouts invalides et donc le rendu de remplacement de Flutter. La plage `[0, 2)` mesure ce rendu, pas un emoji aplati. | Comparer l'avance du produit au témoin riche, et prouver qu'elle diffère du `TextSpan(text: '😀')` aplati. Tue concaténation/reconstruction du pseudo-mot. | Aucun engagement de rendre des séquences UTF-16 invalides comme un scalaire valide ; Flutter reste l'oracle de substitution. |
+| Demi-surrogate haute et basse dans deux `TextSpan.text` voisins | Chaque run est mal formé et produit `ArgumentError: string is not well-formed UTF-16`, même si `toPlainText(false)` concatène les code units en `😀`. Le binding rend le witness/fitter/`RenderParagraph` invalide. | Probe diagnostique seulement : capturer `FlutterError.onError` prouve deux erreurs sur les deux SDK. Ne pas committer ce fixture comme test d'acceptation ou oracle métrique. | Entrée UTF-16 invalide par run, exclue du lot 4. Aucun candidat, range ou rendu de remplacement n'est promis. |
 | `e` et U+0301 répartis dans deux spans, puis emoji et bidi dans des descendants | Aucun séparateur n'est inventé entre base, combining mark, spans ou changements de direction. La sélection couvre tous leurs code units et toutes leurs boxes. | Styles différents sur au moins trois spans et seuil entre deux candidats témoins. Tue découpage par enfant et test d'une seule box. | Pas de segmentation par grapheme, dictionnaire ou UAX #29. |
 | `AA BB`, `AA\tBB`, `AA\nBB`, `AA\r\nBB` | Deux plages `[AA]`, `[BB]`. Séparateurs consécutifs, de début et de fin sont coalescés ; aucune plage vide. Le paragraphe source n'est pas modifié. | Table exacte des ranges plus choix de candidat et boxes rendues. Tue `split` qui conserve des vides ou compte CRLF comme pseudo-mot. | Les autres caractères reconnus par le `RegExp(r'\s')` historique restent séparateurs sauf U+00A0/U+202F. |
 | `AA\u00A0BB`, `AA\u202FBB` | Une seule plage liée dans chaque cas. Si son avance excède `maxWidth`, le candidat échoue même si Flutter pratique une coupure d'urgence. | Largeur entre l'avance témoin du candidat haut et celle du suivant ; assert candidat final et boxes. Tue `RegExp(r'\s+')` sans exceptions et le line-count contraint. | Ne promet pas toutes les classes no-break d'UAX #14. |
@@ -176,8 +207,9 @@ est cependant interdite.
 
 - moteur UAX #14/#29, césure, dictionnaires, soft hyphen, zero-width space,
   règles CJK et normalisation Unicode ;
-- validation ou réparation des chaînes UTF-16 invalides par run ; elles restent
-  rendues selon la substitution Flutter ;
+- validation ou réparation des chaînes UTF-16 invalides par run ; Flutter
+  signale `ArgumentError` avant sa substitution interne et ces cas sont
+  exclus des witnesses, fitters et tests `RenderParagraph` du lot 4 ;
 - support automatique, dimensions, estimation, fallback ou API publique pour
   `WidgetSpan` ;
 - render object, intrinsics, dry layout, dry baseline et modification du
