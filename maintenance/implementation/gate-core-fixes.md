@@ -18,6 +18,8 @@ ou de support de `WidgetSpan` n'est inclus.
 | `8cf1f0a` | régressions permanentes des transitions du minimum de groupe |
 | `4ecdc88` | maintenance incrémentale du minimum dans le produit |
 | `4883bb0` | réparation du harness `maxLines` et suppression des espaces finaux |
+| `8301d7a` | quatre régressions rouges des divergences de l'oracle de fit |
+| `f4e4576` | témoin `RenderParagraph` résolu et migration de tous ses appels |
 
 Le présent journal est conservé dans un commit documentaire séparé.
 
@@ -90,12 +92,38 @@ Les deux espaces finaux de
 est désormais propre.
 
 Le test vide « Unlimited maxLines if parameter null » vérifie maintenant un
-vrai paragraphe multi-ligne sans limite. Le helper `doesTextFit` passe au
-`TextPainter` le `maxLines` qu'il calcule pour `wrapWords:false`, et garde
-correctement `null` comme limite illimitée. Dans une extraction du parent
-produit `4ecdc88`, le nouveau test discriminant du helper était rouge avec
-`Expected: false`, `Actual: true`; il est vert après la correction. Ces
-changements restent strictement dans le harness.
+vrai paragraphe multi-ligne sans limite. La première réparation mécanique de
+`doesTextFit` n'était toutefois pas un oracle fidèle de `wrapWords:false` : le
+clamp du nombre de lignes ne modélisait pas la mesure séparée des plages
+indivisibles et le helper ignorait plusieurs valeurs ambiantes.
+
+Le helper prend désormais un `RenderParagraph` produit par un vrai `Text`
+monté sous son contexte. Sa direction, sa locale, son scaler, son strut, son
+`textWidthBasis`, son `textHeightBehavior`, son overflow, son soft-wrap et ses
+contraintes sont donc déjà résolus par Flutter. Un painter non wrappé mesure
+réellement chaque plage indivisible, espaces insécables compris ; un second
+painter conserve le `maxLines` original pour le verdict de paragraphe. Les
+deux painters sont libérés dans des blocs `finally`. `maxLines: 0` n'est plus
+clampé par un helper source : la construction réelle du paragraphe applique
+l'assertion publique `maxLines == null || maxLines > 0`.
+
+Les trois anciens appels ont été migrés : sélection des presets, forwarding de
+`maxLines` et test de cycle de vie. Quatre régressions permanentes reproduisent
+le rapport externe : emergency wrap avec `maxLines == null`, rejet de zéro,
+direction/scaler ambiants et override ambiant du strut. Elles étaient toutes
+rouges sur `9ec35e9` sous Flutter 3.41.0 et 3.47.2, respectivement avec
+`Actual: true`, retour sans assertion, `StateError` et `Actual: false`. Elles
+sont vertes avec le témoin résolu. Aucun code produit ni API publique n'a été
+modifié par cette reprise du harness.
+
+Les mutants temporaires du témoin ont été abandonnés après exécution :
+
+| Mutant harness | Oracle rouge observé |
+|---|---|
+| ne pas transmettre `RenderParagraph.maxLines` | attendu `false`, obtenu `true` dans le témoin `maxLines: 4` |
+| supprimer la mesure des plages indivisibles | attendu `false`, obtenu `true` avec le mot Ahem et `maxLines == null` |
+| remplacer le scaler ambiant résolu par `noScaling` | attendu `false`, obtenu `true` |
+| omettre le strut effectif | attendu `false`, obtenu `true` sous la borne de hauteur serrée |
 
 ## Matrice
 
@@ -107,17 +135,23 @@ Versions exactes :
 | Contrôle | 3.47.2 | 3.41.0 naturel | 3.41.0 downgradé |
 |---|---:|---:|---:|
 | résolution racine | PASS | PASS | PASS, 9 dépendances abaissées |
-| résolution/analyse exemple | PASS | PASS | graphe naturel conservé |
-| format `lib test example` après résolution haute | PASS, 27 fichiers | non autoritatif | non autoritatif |
-| analyse fatale package `lib test` | PASS | PASS | PASS |
-| suites groupes et fuites ciblées | 34/34 | 34/34 | 34/34 |
-| suite complète | 121/121 | 121/121 | 121/121 |
-| probe compteur | 6/6 | 6/6 | non requis |
+| résolution/analyse exemple | PASS | PASS | PASS, 1 dépendance abaissée |
+| format `lib test example/main.dart` après résolution haute | PASS, 28 fichiers inchangés | non autoritatif | non autoritatif |
+| analyse fatale cœur `lib test example/main.dart` | PASS | PASS | PASS |
+| analyse fatale exemple | PASS | PASS | PASS |
+| ciblés harness, groupes et fuites | 50/50 | 50/50 | 50/50 |
+| suite complète | 125/125 | 125/125 | 125/125 |
+| probe compteur groupe | 6/6 | 6/6 | non requis |
+
+Un appel exploratoire non borné de `flutter analyze` a inclus `demo/`, hors
+périmètre et explicitement différée au lot 6 ; il a retrouvé ses dépendances
+absentes et API historique. Les analyses autoritatives ci-dessus ont ensuite
+été relancées avec le périmètre cœur exact et sont vertes.
 
 Le lock canonique `example/pubspec.lock` est resté byte-identique, SHA-256
 `115848ebae231fd23d59e6f2d5945b59016605d8b14fb4b7f23de2ad8916b1f7`.
 La résolution minimale et son downgrade ont été confinés à une extraction
-temporaire ; aucun lock minimum n'a été recopié.
+temporaire ensuite supprimée ; aucun lock minimum n'a été recopié.
 
 La démo reste explicitement différée au lot 6. Aucun merge, push, tag ou
 publication n'a été effectué.
