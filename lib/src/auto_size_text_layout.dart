@@ -84,6 +84,19 @@ Iterable<TextRange> _unbreakableTextRanges(String text) sync* {
   }
 }
 
+final class _UnbreakableTextSnapshot {
+  factory _UnbreakableTextSnapshot.from(InlineSpan text) {
+    final plainText = text.toPlainText(includeSemanticsLabels: false);
+    return _UnbreakableTextSnapshot._(
+      List<TextRange>.unmodifiable(_unbreakableTextRanges(plainText)),
+    );
+  }
+
+  const _UnbreakableTextSnapshot._(this.ranges);
+
+  final List<TextRange> ranges;
+}
+
 bool _containsWidgetSpan(InlineSpan text) {
   var containsWidgetSpan = false;
   text.visitChildren((span) {

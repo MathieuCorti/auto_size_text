@@ -22,6 +22,8 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
   U+202F NNBSP conservés comme caractères liants ;
 - mesure des plages visuelles sur l'arbre riche non aplati, avec offsets UTF-16
   et agrégation de toutes les boîtes retournées par Flutter ;
+- snapshot immuable du texte visuel et de sa segmentation construit une fois
+  par configuration, hors de la recherche de candidats ;
 - conservation des recognizers, callbacks de survol, curseurs, métadonnées de
   sémantique, locales, `spellOut`, arbres source et clés de `Text` ;
 - erreur déterministe appartenant au package lorsqu'un `WidgetSpan` est
@@ -88,7 +90,16 @@ isolé ou une bounding box globale ne sont pas des oracles valides.
 Le découpage des plages est linéaire dans la chaîne d'offsets. Le coût de leur
 mesure dépend ensuite du nombre de plages et de boîtes renvoyées par Flutter ;
 aucune revendication plus forte sur les détails internes du moteur n'est faite.
-La recherche de candidats conserve sa complexité logarithmique du lot 2.
+La chaîne et ses ranges sont matérialisées une seule fois dans une
+`List<TextRange>.unmodifiable`, locale à l'invocation de calcul. Chaque candidat
+réutilise ce snapshot, tout en conservant son propre painter et son propre
+layout auxiliaire. `wrapWords: true` transmet `null` et ne calcule ni chaîne ni
+ranges. Il n'existe aucun cache global, mutable ou partagé entre rebuilds.
+
+La préparation visible du package coûte donc `O(N)` par configuration, puis au
+plus `K × E` requêtes de boîtes pour `K` plages et `E` candidats testés. La
+recherche de candidats conserve sa complexité logarithmique du lot 2. La
+complexité interne de Flutter pour une requête de boîtes n'est pas revendiquée.
 
 Ce lot conserve volontairement les opportunités historiques espace, tabulation
 et retour de ligne. Il n'implémente pas l'algorithme général Unicode Line
@@ -138,6 +149,29 @@ erreurs Flutter ; la fixture a donc été exclue après arbitrage plutôt que de
 transformer un input invalide en contrat du package. L'implémentation reste
 fidèle à l'arbre et ne concatène aucun pseudo-run.
 
+## Correctif après les deux revues du lot
+
+Les revues indépendantes `632edad` et `f6419e7` ont toutes deux demandé le même
+correctif bloquant : sur la tête initiale `719d6a8`, la chaîne visuelle et le
+scan des ranges étaient exécutés dans `_checkTextFits`, donc une fois par
+candidat de la dichotomie.
+
+La régression permanente utilise uniquement dans le test un sous-type privé de
+la classe publique `TextSpan` et compte ses appels à `computeToPlainText`, sans
+accès à un helper privé. Avec une grille virtuelle d'environ `1 000 000 001`
+candidats, une boîte
+de taille nulle et un replacement empêchant le rendu final du span, elle a été
+exécutée avant le correctif sur `719d6a8` : attendu 1, réel 30 avec Flutter
+3.47.2. Ce rouge reproduit exactement le finding des deux revues, qui avaient
+également mesuré 30 sur Flutter 3.41.0.
+
+Le snapshot est désormais construit dans `_calculateFontSize` avant
+`findLargestThatFits`. Le même test obtient exactement 0 appel avec
+`wrapWords: true`, 1 avec `wrapWords: false`, puis un appel supplémentaire et
+un seul après changement d'override et après remplacement du span entre pumps.
+Le painter auxiliaire, son layout non wrappé, les requêtes de boîtes, leur somme
+bidi et le `dispose` protégé par `finally` restent propres à chaque candidat.
+
 ## Preuves vertes
 
 Toolchains exactes :
@@ -153,26 +187,28 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 |---|---|
 | format `lib test example`, puis contrôle sans changement | 25 fichiers, 0 changement |
 | analyse scoped fatale `lib test example/main.dart` | aucun diagnostic |
-| `test/rich_text_test.dart test/wrap_words_test.dart` | 20/20 |
-| suite racine complète | 95/95 |
+| `test/rich_text_test.dart test/wrap_words_test.dart` | 21/21 |
+| compteur domaine milliardaire / corpus alterné | 0 pour wrap vrai, puis exactement 1 par configuration ; vert sans seuil mural |
+| suite racine complète | 96/96 |
 | suites explicites cycle de vie/leak | 9/9 |
 | exemple : `pub get --enforce-lockfile`, analyse fatale | succès, aucun diagnostic |
 
 ### Flutter 3.41.0
 
-L'état final a été copié dans
-`/private/tmp/auto-size-text-lot4-final-min.KGeEIy/repo`, sans `.git`, locks ni
+L'état final corrigé a été copié dans
+`/private/tmp/auto-size-text-lot4-fix-min.qzbod1/repo`, sans `.git`, locks ni
 répertoires générés avant résolution.
 
 | Commande | Résultat |
 |---|---|
 | `flutter pub get --no-example` racine | succès, 26 dépendances résolues naturellement |
 | analyse scoped fatale `lib test example/main.dart` | aucun diagnostic |
-| deux suites ciblées du lot | 20/20 |
-| suite racine complète | 95/95 |
+| deux suites ciblées du lot | 21/21 |
+| compteur domaine milliardaire / corpus alterné | 0 pour wrap vrai, puis exactement 1 par configuration ; vert sans seuil mural |
+| suite racine complète | 96/96 |
 | suites explicites cycle de vie/leak | 9/9 |
 | exemple sans lock : `flutter pub get`, analyse fatale | succès, aucun diagnostic |
-| `flutter pub downgrade --no-example`, puis suite complète `--no-pub` | 9 dépendances abaissées ; 95/95 |
+| `flutter pub downgrade --no-example`, puis suite complète `--no-pub` | 9 dépendances abaissées ; 96/96 |
 
 Le painter témoin est reconstruit depuis le vrai `RenderParagraph` dans les cas
 discriminants. Les tests comparent `textSize`, `didExceedMaxLines`, la taille
@@ -195,6 +231,9 @@ complet avant NBSP, labels sémantiques exclus des offsets et plage bidi à
 plusieurs boîtes. `wrapWords: true` conserve son comportement historique.
 Un corpus de 256 code units alternant caractère et séparateur exerce le cas à
 nombreuses plages sans imposer de seuil temporel dépendant de la machine.
+Le compteur sur domaine milliardaire verrouille séparément 0 segmentation pour
+`wrapWords: true`, une segmentation par configuration pour `false` et le
+recalcul exact après changement du span ou d'un override entre pumps.
 
 Le test `WidgetSpan` vérifie seulement l'erreur déterministe et l'identité de
 la source. Il ne promet ni mesure, ni rendu, ni support anticipé du lot 10.

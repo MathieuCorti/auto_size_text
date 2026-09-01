@@ -3,6 +3,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+final class _PlainTextCounter {
+  int calls = 0;
+}
+
+final class _CountingTextSpan extends TextSpan {
+  const _CountingTextSpan(this.counter, {required super.text});
+
+  final _PlainTextCounter counter;
+
+  @override
+  void computeToPlainText(
+    StringBuffer buffer, {
+    bool includeSemanticsLabels = true,
+    bool includePlaceholders = true,
+  }) {
+    counter.calls += 1;
+    super.computeToPlainText(
+      buffer,
+      includeSemanticsLabels: includeSemanticsLabels,
+      includePlaceholders: includePlaceholders,
+    );
+  }
+}
+
 Future<RenderParagraph> _pumpRich(
   WidgetTester tester, {
   required TextSpan source,
@@ -298,6 +322,67 @@ void main() {
 
         expect(_rootSize(paragraph), 20);
         expect(paragraph.text.toPlainText(includeSemanticsLabels: false), text);
+      },
+    );
+
+    testWidgets(
+      'should segment once per configuration outside candidate search',
+      (tester) async {
+        final counter = _PlainTextCounter();
+        final firstSource = _CountingTextSpan(counter, text: 'A');
+
+        Future<void> pumpConfiguration({
+          required TextSpan source,
+          required bool wrapWords,
+          double? letterSpacingOverride,
+        }) async {
+          await tester.pumpWidget(
+            MediaQuery(
+              data: MediaQueryData(
+                textScaler: TextScaler.noScaling,
+                letterSpacingOverride: letterSpacingOverride,
+              ),
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: SizedBox(
+                  width: 0,
+                  height: 0,
+                  child: AutoSizeText.rich(
+                    source,
+                    style: const TextStyle(
+                      fontFamily: 'Ahem',
+                      fontSize: 100000000,
+                    ),
+                    minFontSize: 0.1,
+                    stepGranularity: 0.1,
+                    textScaler: TextScaler.noScaling,
+                    softWrap: false,
+                    maxLines: 1,
+                    wrapWords: wrapWords,
+                    overflowReplacement: const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        await pumpConfiguration(source: firstSource, wrapWords: true);
+        expect(counter.calls, 0);
+
+        await pumpConfiguration(source: firstSource, wrapWords: false);
+        expect(counter.calls, 1);
+
+        await pumpConfiguration(
+          source: firstSource,
+          wrapWords: false,
+          letterSpacingOverride: 1,
+        );
+        expect(counter.calls, 2);
+
+        final secondSource = _CountingTextSpan(counter, text: 'B');
+        await pumpConfiguration(source: secondSource, wrapWords: false);
+        expect(counter.calls, 3);
       },
     );
 

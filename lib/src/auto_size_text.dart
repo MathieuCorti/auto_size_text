@@ -468,6 +468,11 @@ class _AutoSizeTextState extends State<AutoSizeText> {
             sourceTextSpan,
             configuration.measurementTextStyleOverride,
           );
+    final unbreakableTextSnapshot = widget.wrapWords
+        ? null
+        : _UnbreakableTextSnapshot.from(
+            measurementTextSpan ?? TextSpan(text: widget.data),
+          );
 
     final referenceFontSize = configuration.referenceFontSize;
     final result = candidates.findLargestThatFits((candidate) {
@@ -489,7 +494,13 @@ class _AutoSizeTextState extends State<AutoSizeText> {
               candidate: candidate,
               reference: referenceFontSize,
             );
-      return _checkTextFits(span, candidateScaler, configuration, constraints);
+      return _checkTextFits(
+        span,
+        candidateScaler,
+        configuration,
+        constraints,
+        unbreakableTextSnapshot,
+      );
     });
 
     final effectiveFontSize = configuration.userScaler.scale(result.value);
@@ -507,9 +518,9 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     TextScaler candidateScaler,
     _EffectiveTextConfiguration configuration,
     BoxConstraints constraints,
+    _UnbreakableTextSnapshot? unbreakableTextSnapshot,
   ) {
-    if (!widget.wrapWords) {
-      final plainText = text.toPlainText(includeSemanticsLabels: false);
+    if (unbreakableTextSnapshot != null) {
       final wordWrapTextPainter = TextPainter(
         text: text,
         textAlign: configuration.textAlign,
@@ -523,7 +534,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
 
       try {
         wordWrapTextPainter.layout(maxWidth: double.infinity);
-        for (final range in _unbreakableTextRanges(plainText)) {
+        for (final range in unbreakableTextSnapshot.ranges) {
           final boxes = wordWrapTextPainter.getBoxesForSelection(
             TextSelection(baseOffset: range.start, extentOffset: range.end),
           );
