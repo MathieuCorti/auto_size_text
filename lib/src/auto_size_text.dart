@@ -251,9 +251,17 @@ class _AutoSizeTextState extends State<AutoSizeText> {
 
         final maxLines = widget.maxLines ?? defaultTextStyle.maxLines;
 
-        _validateProperties(style, maxLines);
+        _validateCandidateInputs(
+          minFontSize: widget.minFontSize,
+          maxFontSize: widget.maxFontSize,
+          stepGranularity: widget.stepGranularity,
+          referenceFontSize: style.fontSize!,
+          textScaleFactor: widget.textScaleFactor,
+        );
+        final candidates = _createCandidateSet(style.fontSize!);
+        _validateProperties(maxLines);
 
-        final result = _calculateFontSize(size, style, maxLines);
+        final result = _calculateFontSize(size, style, maxLines, candidates);
         final fontSize = result[0] as double;
         final textFits = result[1] as bool;
 
@@ -275,7 +283,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     );
   }
 
-  void _validateProperties(TextStyle style, int? maxLines) {
+  void _validateProperties(int? maxLines) {
     assert(
       widget.overflow == null || widget.overflowReplacement == null,
       'Either overflow or overflowReplacement must be null.',
@@ -304,16 +312,6 @@ class _AutoSizeTextState extends State<AutoSizeText> {
         widget.minFontSize <= widget.maxFontSize,
         'MinFontSize must be smaller or equal than maxFontSize.',
       );
-      assert(
-        widget.minFontSize / widget.stepGranularity % 1 == 0,
-        'MinFontSize must be a multiple of stepGranularity.',
-      );
-      if (widget.maxFontSize != double.infinity) {
-        assert(
-          widget.maxFontSize / widget.stepGranularity % 1 == 0,
-          'MaxFontSize must be a multiple of stepGranularity.',
-        );
-      }
     } else {
       assert(
         widget.presetFontSizes!.isNotEmpty,
@@ -322,10 +320,27 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     }
   }
 
+  _CandidateSet _createCandidateSet(double referenceFontSize) {
+    final presetFontSizes = widget.presetFontSizes;
+    if (presetFontSizes != null) {
+      return _CandidateSet.presets(presetFontSizes);
+    }
+
+    final upper = referenceFontSize
+        .clamp(widget.minFontSize, widget.maxFontSize)
+        .toDouble();
+    return _CandidateSet.regular(
+      minimum: widget.minFontSize,
+      upper: upper,
+      step: widget.stepGranularity,
+    );
+  }
+
   List<Object> _calculateFontSize(
     BoxConstraints size,
     TextStyle? style,
     int? maxLines,
+    _CandidateSet candidates,
   ) {
     final span = TextSpan(
       style: widget.textSpan?.style ?? style,
@@ -334,59 +349,21 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       recognizer: widget.textSpan?.recognizer,
     );
 
-    final userScale =
-        widget.textScaleFactor ?? MediaQuery.textScaleFactorOf(context);
+    final referenceFontSize = style!.fontSize!;
+    final userScale = _canonicalCandidateZero(
+      widget.textScaleFactor ?? MediaQuery.textScaleFactorOf(context),
+    );
+    final result = candidates.findLargestThatFits((candidate) {
+      final scale = referenceFontSize == 0 && widget.data != null
+          ? 0.0
+          : candidate * userScale / referenceFontSize;
+      return _checkTextFits(span, scale, maxLines, size);
+    });
 
-    int left;
-    int right;
-
-    final presetFontSizes = widget.presetFontSizes?.reversed.toList();
-    if (presetFontSizes == null) {
-      final num defaultFontSize = style!.fontSize!.clamp(
-        widget.minFontSize,
-        widget.maxFontSize,
-      );
-      final defaultScale = defaultFontSize * userScale / style.fontSize!;
-      if (_checkTextFits(span, defaultScale, maxLines, size)) {
-        return <Object>[defaultFontSize * userScale, true];
-      }
-
-      left = (widget.minFontSize / widget.stepGranularity).floor();
-      right = (defaultFontSize / widget.stepGranularity).ceil();
-    } else {
-      left = 0;
-      right = presetFontSizes.length - 1;
-    }
-
-    var lastValueFits = false;
-    while (left <= right) {
-      final mid = (left + (right - left) / 2).floor();
-      double scale;
-      if (presetFontSizes == null) {
-        scale = mid * userScale * widget.stepGranularity / style!.fontSize!;
-      } else {
-        scale = presetFontSizes[mid] * userScale / style!.fontSize!;
-      }
-      if (_checkTextFits(span, scale, maxLines, size)) {
-        left = mid + 1;
-        lastValueFits = true;
-      } else {
-        right = mid - 1;
-      }
-    }
-
-    if (!lastValueFits) {
-      right += 1;
-    }
-
-    double fontSize;
-    if (presetFontSizes == null) {
-      fontSize = right * userScale * widget.stepGranularity;
-    } else {
-      fontSize = presetFontSizes[right] * userScale;
-    }
-
-    return <Object>[fontSize, lastValueFits];
+    return <Object>[
+      _canonicalCandidateZero(result.value * userScale),
+      result.fits,
+    ];
   }
 
   bool _checkTextFits(
