@@ -11,6 +11,7 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
 ## Périmètre livré
 
 - passage de la version package à `4.0.0` et description Pub actualisée ;
+- déclaration du fork de release exact comme `repository` Pub ;
 - README public réécrit autour des contrats 4.x réellement exercés : texte
   simple/riche, groupes, candidats réguliers/presets, remplacement, scaling
   non linéaire, `WidgetSpan` humide et limites sèches lean ;
@@ -31,17 +32,13 @@ publication, tag, push ou merge n'appartient à ce lot.
 
 ## Métadonnées et gouvernance
 
-Le remote `origin` est `https://github.com/MathieuCorti/auto_size_text.git` et
-`upstream` est `https://github.com/simc/auto_size_text.git`. Ni ces remotes ni
-les documents de gouvernance ne désignent un dépôt canonique de publication,
-un tracker ou une autorité Pub. L'ancien `homepage` vers `leisim` a donc été
-retiré, sans inventer `homepage`, `repository`, `issue_tracker`, `funding` ou
-une identité de fork.
-
-Cette décision conserve un avertissement Pub non bloquant recommandant
-`homepage` ou `repository`. Il devra être résolu uniquement après décision de
-gouvernance et vérification des droits uploader. Aucun tag ou publish réel ne
-doit précéder ces deux validations.
+Le remote `origin`, retenu par la revue comme fork de release, est
+`https://github.com/MathieuCorti/auto_size_text.git` ; le champ `repository`
+reprend donc exactement `https://github.com/MathieuCorti/auto_size_text`.
+`upstream` reste `https://github.com/simc/auto_size_text.git`. L'ancien
+`homepage` vers `leisim` a été retiré et aucun `homepage`, `issue_tracker` ou
+`funding` n'est inventé. L'autorité Pub reste à vérifier : aucun tag ou publish
+réel ne doit la précéder.
 
 La base technique demandée ne contient pas la future piste CI du lot 11. Le
 changelog ne revendique donc aucune modernisation CI et le workflow historique
@@ -79,10 +76,9 @@ build, couverture, locks, fichiers locaux, secrets usuels et wrappers Gradle
 sont absentes. Une recherche sur chaque fichier archivé ne trouve aucun chemin
 `/Users/`, `C:\\Users\\` ou `C:/Users/`.
 
-Le dry-run strict retourne 65 à cause de l'avertissement de métadonnée décrit
-plus haut ; le replay explicite
-`dart pub publish --dry-run --ignore-warnings` retourne **0**. L'option
-`--dry-run` est restée active à chaque essai et aucune publication n'a eu lieu.
+Le dry-run strict `flutter pub publish --dry-run` retourne **0**, annonce
+**0 warning** et conserve l'archive de **69 KB / 44 fichiers**. L'option
+`--dry-run` est restée active et aucune publication n'a eu lieu.
 
 ## Décisions et limites publiques
 
@@ -103,9 +99,7 @@ plus haut ; le replay explicite
 
 ## Risques restants
 
-- dépôt canonique, tracker et droits Pub non établis ;
-- avertissement Pub de métadonnée accepté temporairement plutôt qu'une URL
-  inventée ;
+- issue tracker explicite et droits Pub non établis ;
 - workflow CI historique présent sur cette base exacte ;
 - divergences dry/wet lean documentées pour remplacement et `WidgetSpan` ;
 - contrôles serveur Pub non couverts par le dry-run local.

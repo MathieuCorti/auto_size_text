@@ -1,6 +1,7 @@
 name: auto_size_text
 description: Auto-sizing Flutter text with rich text, grouping, TextScaler, intrinsic sizing, and WidgetSpan support.
 version: 4.0.0
+repository: https://github.com/MathieuCorti/auto_size_text
 
 environment:
   sdk: '>=3.11.0 <4.0.0'
