@@ -9,10 +9,7 @@ TextSpan spanFromString(String text) {
   ];
   final spans = text.split(' ').map((word) {
     if (index == 3) index = 0;
-    return TextSpan(
-      style: styles[index++],
-      text: '$word ',
-    );
+    return TextSpan(style: styles[index++], text: '$word ');
   }).toList();
 
   return TextSpan(text: '', children: spans);

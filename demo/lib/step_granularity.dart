@@ -8,7 +8,7 @@ import 'utils.dart';
 class StepGranularityDemo extends StatelessWidget {
   final bool richText;
 
-  StepGranularityDemo(this.richText);
+  const StepGranularityDemo(this.richText, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -24,11 +24,7 @@ class StepGranularityDemo extends StatelessWidget {
               child: TextCard(
                 title: 'Text',
                 child: !richText
-                    ? Text(
-                        input,
-                        style: TextStyle(fontSize: 40),
-                        maxLines: 4,
-                      )
+                    ? Text(input, style: TextStyle(fontSize: 40), maxLines: 4)
                     : Text.rich(
                         spanFromString(input),
                         style: TextStyle(fontSize: 40),
