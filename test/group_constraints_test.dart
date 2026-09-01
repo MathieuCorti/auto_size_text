@@ -103,18 +103,18 @@ Future<void> _pumpGroup(WidgetTester tester, Widget child) async {
 }
 
 Text _text(WidgetTester tester, Key key) {
-  return tester.widget<Text>(find.byKey(key));
+  return tester.widget<Text>(
+    find.descendant(of: find.byKey(key), matching: find.byType(Text)),
+  );
 }
 
 double _effectiveSize(WidgetTester tester, Key key) {
-  final text = _text(tester, key);
-  return (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);
+  final paragraph = tester.renderObject<RenderParagraph>(find.byKey(key));
+  return paragraph.textScaler.scale(paragraph.text.style!.fontSize!);
 }
 
 RenderParagraph _paragraph(WidgetTester tester, Key textKey) {
-  return tester.renderObject<RenderParagraph>(
-    find.descendant(of: find.byKey(textKey), matching: find.byType(RichText)),
-  );
+  return tester.renderObject<RenderParagraph>(find.byKey(textKey));
 }
 
 double _selectionWidth(RenderParagraph paragraph, int start, int end) {

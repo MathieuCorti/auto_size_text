@@ -160,9 +160,7 @@ final class _CandidateTextScaler extends TextScaler {
     _requireFiniteNonNegative(fontSize, 'fontSize');
     final adjustedFontSize = fontSize * candidate / reference;
     _requireFiniteNonNegative(adjustedFontSize, 'adjustedFontSize');
-    final scaledFontSize = source.scale(adjustedFontSize);
-    _requireFiniteNonNegative(scaledFontSize, 'scaledFontSize');
-    return _canonicalCandidateZero(scaledFontSize);
+    return _scaleUserFontSize(source, adjustedFontSize, name: 'scaledFontSize');
   }
 
   @override
@@ -221,16 +219,317 @@ final class _EffectiveTextConfiguration {
   double get referenceFontSize => baseStyle.fontSize!;
 }
 
-final class _AutoSizeTextLayoutResult {
-  const _AutoSizeTextLayoutResult({
-    required this.candidate,
-    required this.effectiveFontSize,
+final class _AutoSizeTextMeasurement {
+  const _AutoSizeTextMeasurement({
     required this.fits,
+    required this.textSize,
+    required this.renderSize,
+    required this.baseline,
+    required this.minIntrinsicWidth,
+    required this.maxIntrinsicWidth,
   });
 
-  final double candidate;
-  final double effectiveFontSize;
   final bool fits;
+  final Size textSize;
+  final Size renderSize;
+  final double baseline;
+  final double minIntrinsicWidth;
+  final double maxIntrinsicWidth;
+}
+
+final class _AutoSizeTextSelection {
+  const _AutoSizeTextSelection({
+    required this.localCandidate,
+    required this.localEffectiveFontSize,
+    required this.localFits,
+    required this.renderCandidate,
+    required this.measurement,
+  });
+
+  final double localCandidate;
+  final double localEffectiveFontSize;
+  final bool localFits;
+  final double renderCandidate;
+  final _AutoSizeTextMeasurement measurement;
+}
+
+/// Immutable input used by wet, dry and intrinsic paragraph measurement.
+final class _AutoSizeTextLayoutSnapshot {
+  factory _AutoSizeTextLayoutSnapshot({
+    required String? data,
+    required TextSpan? textSpan,
+    required Key? textKey,
+    required TextStyle? renderStyle,
+    required StrutStyle? renderStrutStyle,
+    required TextAlign? renderTextAlign,
+    required TextDirection? renderTextDirection,
+    required Locale? renderLocale,
+    required bool? renderSoftWrap,
+    required TextOverflow? renderOverflow,
+    required int? renderMaxLines,
+    required String? semanticsLabel,
+    required bool wrapWords,
+    required _EffectiveTextConfiguration configuration,
+    required _CandidateSet candidates,
+    required double groupLimit,
+  }) {
+    final measurementTextSpan = textSpan == null
+        ? null
+        : _applyTextStyleOverride(
+            textSpan,
+            configuration.measurementTextStyleOverride,
+          );
+    return _AutoSizeTextLayoutSnapshot._(
+      data: data,
+      textSpan: textSpan,
+      textKey: textKey,
+      renderStyle: renderStyle,
+      renderStrutStyle: renderStrutStyle,
+      renderTextAlign: renderTextAlign,
+      renderTextDirection: renderTextDirection,
+      renderLocale: renderLocale,
+      renderSoftWrap: renderSoftWrap,
+      renderOverflow: renderOverflow,
+      renderMaxLines: renderMaxLines,
+      semanticsLabel: semanticsLabel,
+      configuration: configuration,
+      candidates: candidates,
+      groupLimit: groupLimit,
+      measurementTextSpan: measurementTextSpan,
+      unbreakableTextSnapshot: wrapWords
+          ? null
+          : _UnbreakableTextSnapshot.from(
+              measurementTextSpan ?? TextSpan(text: data),
+            ),
+    );
+  }
+
+  const _AutoSizeTextLayoutSnapshot._({
+    required this.data,
+    required this.textSpan,
+    required this.textKey,
+    required this.renderStyle,
+    required this.renderStrutStyle,
+    required this.renderTextAlign,
+    required this.renderTextDirection,
+    required this.renderLocale,
+    required this.renderSoftWrap,
+    required this.renderOverflow,
+    required this.renderMaxLines,
+    required this.semanticsLabel,
+    required this.configuration,
+    required this.candidates,
+    required this.groupLimit,
+    required this.measurementTextSpan,
+    required this.unbreakableTextSnapshot,
+  });
+
+  final String? data;
+  final TextSpan? textSpan;
+  final Key? textKey;
+  final TextStyle? renderStyle;
+  final StrutStyle? renderStrutStyle;
+  final TextAlign? renderTextAlign;
+  final TextDirection? renderTextDirection;
+  final Locale? renderLocale;
+  final bool? renderSoftWrap;
+  final TextOverflow? renderOverflow;
+  final int? renderMaxLines;
+  final String? semanticsLabel;
+  final _EffectiveTextConfiguration configuration;
+  final _CandidateSet candidates;
+  final double groupLimit;
+  final TextSpan? measurementTextSpan;
+  final _UnbreakableTextSnapshot? unbreakableTextSnapshot;
+
+  _AutoSizeTextSelection select(BoxConstraints constraints) {
+    final measurements = <double, _AutoSizeTextMeasurement>{};
+    final local = candidates.findLargestThatFits((candidate) {
+      final measurement = _measure(candidate, constraints);
+      measurements[candidate] = measurement;
+      return measurement.fits;
+    });
+    final renderCandidate = candidates.findLargestThatFits((candidate) {
+      if (candidate > local.value) {
+        return false;
+      }
+      return _checkedEffectiveFontSize(
+            configuration.userScaler,
+            candidate,
+            name: 'projectedFontSize',
+          ) <=
+          groupLimit;
+    }).value;
+    final measurement =
+        measurements[renderCandidate] ?? _measure(renderCandidate, constraints);
+    return _AutoSizeTextSelection(
+      localCandidate: local.value,
+      localEffectiveFontSize: _checkedEffectiveFontSize(
+        configuration.userScaler,
+        local.value,
+        name: 'calculatedFontSize',
+      ),
+      localFits: local.fits,
+      renderCandidate: renderCandidate,
+      measurement: measurement,
+    );
+  }
+
+  double intrinsicHeight(double candidate, double width) {
+    final painter = _createPainter(candidate);
+    try {
+      painter.layout(
+        minWidth: width,
+        maxWidth:
+            configuration.softWrap ||
+                configuration.overflow == TextOverflow.ellipsis
+            ? width
+            : double.infinity,
+      );
+      return painter.height;
+    } finally {
+      painter.dispose();
+    }
+  }
+
+  Widget buildParagraph(double candidate) {
+    final referenceFontSize = configuration.referenceFontSize;
+    final effectiveRenderStyle = referenceFontSize == 0
+        ? (renderStyle ?? const TextStyle()).copyWith(fontSize: candidate)
+        : renderStyle;
+    final candidateScaler = _candidateScaler(candidate);
+    final child = data != null
+        ? Text(
+            data!,
+            style: effectiveRenderStyle,
+            strutStyle: renderStrutStyle,
+            textAlign: renderTextAlign,
+            textDirection: renderTextDirection,
+            locale: renderLocale,
+            softWrap: renderSoftWrap,
+            overflow: renderOverflow,
+            textScaler: candidateScaler,
+            maxLines: renderMaxLines,
+            semanticsLabel: semanticsLabel,
+            textWidthBasis: configuration.textWidthBasis,
+            textHeightBehavior: configuration.textHeightBehavior,
+          )
+        : Text.rich(
+            textSpan!,
+            style: effectiveRenderStyle,
+            strutStyle: renderStrutStyle,
+            textAlign: renderTextAlign,
+            textDirection: renderTextDirection,
+            locale: renderLocale,
+            softWrap: renderSoftWrap,
+            overflow: renderOverflow,
+            textScaler: candidateScaler,
+            maxLines: renderMaxLines,
+            semanticsLabel: semanticsLabel,
+            textWidthBasis: configuration.textWidthBasis,
+            textHeightBehavior: configuration.textHeightBehavior,
+          );
+    return _AutoSizeTextParagraph(key: textKey, child: child);
+  }
+
+  _AutoSizeTextMeasurement _measure(
+    double candidate,
+    BoxConstraints constraints,
+  ) {
+    var unbreakableRangesFit = true;
+    final unbreakableSnapshot = unbreakableTextSnapshot;
+    if (unbreakableSnapshot != null) {
+      final wordPainter = _createPainter(candidate, includeMaxLines: false);
+      try {
+        wordPainter.layout(maxWidth: double.infinity);
+        for (final range in unbreakableSnapshot.ranges) {
+          final boxes = wordPainter.getBoxesForSelection(
+            TextSelection(baseOffset: range.start, extentOffset: range.end),
+          );
+          final rangeWidth = boxes.fold<double>(
+            0,
+            (width, box) => width + (box.right - box.left).abs(),
+          );
+          if (rangeWidth > constraints.maxWidth) {
+            unbreakableRangesFit = false;
+            break;
+          }
+        }
+      } finally {
+        wordPainter.dispose();
+      }
+    }
+
+    final painter = _createPainter(candidate);
+    try {
+      painter.layout(
+        minWidth: constraints.minWidth,
+        maxWidth:
+            configuration.softWrap ||
+                configuration.overflow == TextOverflow.ellipsis
+            ? constraints.maxWidth
+            : double.infinity,
+      );
+      final textSize = painter.size;
+      final renderSize = constraints.constrain(textSize);
+      return _AutoSizeTextMeasurement(
+        fits:
+            unbreakableRangesFit &&
+            !painter.didExceedMaxLines &&
+            renderSize.width >= textSize.width &&
+            renderSize.height >= textSize.height,
+        textSize: textSize,
+        renderSize: renderSize,
+        baseline: painter.computeDistanceToActualBaseline(
+          TextBaseline.alphabetic,
+        ),
+        minIntrinsicWidth: painter.minIntrinsicWidth,
+        maxIntrinsicWidth: painter.maxIntrinsicWidth,
+      );
+    } finally {
+      painter.dispose();
+    }
+  }
+
+  TextPainter _createPainter(double candidate, {bool includeMaxLines = true}) {
+    final referenceFontSize = configuration.referenceFontSize;
+    final parentStyle = referenceFontSize == 0
+        ? configuration.measurementStyle.copyWith(fontSize: candidate)
+        : configuration.measurementStyle;
+    final text = TextSpan(
+      style: parentStyle,
+      text: data,
+      locale: renderLocale,
+      children: measurementTextSpan == null
+          ? null
+          : <InlineSpan>[measurementTextSpan!],
+    );
+    return TextPainter(
+      text: text,
+      textAlign: configuration.textAlign,
+      textDirection: configuration.textDirection,
+      textScaler: _candidateScaler(candidate),
+      maxLines: includeMaxLines ? configuration.maxLines : null,
+      ellipsis: configuration.overflow == TextOverflow.ellipsis
+          ? '\u2026'
+          : null,
+      locale: configuration.locale,
+      strutStyle: configuration.measurementStrutStyle,
+      textWidthBasis: configuration.textWidthBasis,
+      textHeightBehavior: configuration.textHeightBehavior,
+    );
+  }
+
+  TextScaler _candidateScaler(double candidate) {
+    final referenceFontSize = configuration.referenceFontSize;
+    return referenceFontSize == 0
+        ? configuration.userScaler
+        : _CandidateTextScaler(
+            source: configuration.userScaler,
+            candidate: candidate,
+            reference: referenceFontSize,
+          );
+  }
 }
 
 double _checkedEffectiveFontSize(
@@ -238,9 +537,31 @@ double _checkedEffectiveFontSize(
   double candidate, {
   required String name,
 }) {
-  final effectiveFontSize = scaler.scale(candidate);
-  _requireFiniteNonNegative(effectiveFontSize, name);
-  return _canonicalCandidateZero(effectiveFontSize);
+  return _scaleUserFontSize(scaler, candidate, name: name);
+}
+
+final class _AutoSizeTextUserScalerFailure implements Exception {
+  const _AutoSizeTextUserScalerFailure(this.original, this.originalStackTrace);
+
+  final Object original;
+  final StackTrace originalStackTrace;
+}
+
+double _scaleUserFontSize(
+  TextScaler scaler,
+  double fontSize, {
+  required String name,
+}) {
+  try {
+    final scaledFontSize = scaler.scale(fontSize);
+    _requireFiniteNonNegative(scaledFontSize, name);
+    return _canonicalCandidateZero(scaledFontSize);
+  } catch (error, stackTrace) {
+    Error.throwWithStackTrace(
+      _AutoSizeTextUserScalerFailure(error, stackTrace),
+      stackTrace,
+    );
+  }
 }
 
 final class _CandidateSearchResult {

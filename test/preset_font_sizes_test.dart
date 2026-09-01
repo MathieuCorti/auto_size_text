@@ -218,8 +218,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(effectiveFontSize(tester.widget(find.byKey(firstKey))), 20);
-      expect(effectiveFontSize(tester.widget(find.byKey(secondKey))), 30);
+      expect(effectiveFontSizeForKey(tester, firstKey), 20);
+      expect(effectiveFontSizeForKey(tester, secondKey), 30);
       expect(firstPresets, orderedEquals(<double>[40, 20, 10]));
       expect(secondPresets, orderedEquals(<double>[30, 10]));
     });

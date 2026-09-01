@@ -5,8 +5,25 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-double effectiveFontSize(Text text) =>
-    (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);
+double effectiveFontSize(Widget widget) {
+  final text = widget is Text ? widget : (widget as dynamic).child as Text;
+  return (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);
+}
+
+Text textWidgetForKey(WidgetTester tester, Key key) {
+  return tester.widget<Text>(
+    find.descendant(of: find.byKey(key), matching: find.byType(Text)),
+  );
+}
+
+RenderParagraph renderParagraphForKey(WidgetTester tester, Key key) {
+  return tester.renderObject<RenderParagraph>(find.byKey(key));
+}
+
+double effectiveFontSizeForKey(WidgetTester tester, Key key) {
+  final paragraph = renderParagraphForKey(tester, key);
+  return paragraph.textScaler.scale(paragraph.text.style!.fontSize!);
+}
 
 bool renderParagraphFits(RenderParagraph paragraph, {bool wrapWords = true}) {
   final constraints = paragraph.constraints;
