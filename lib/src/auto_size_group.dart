@@ -13,8 +13,14 @@ class AutoSizeGroup {
   void _updateFontSize(_AutoSizeTextState text, double maxFontSize) {
     assert(_listeners.containsKey(text));
     final oldFontSize = _fontSize;
+    final previousReport = _listeners[text]!;
     _listeners[text] = maxFontSize;
-    _recalculateFontSize();
+
+    if (maxFontSize < _fontSize) {
+      _fontSize = maxFontSize;
+    } else if (previousReport == _fontSize && maxFontSize > previousReport) {
+      _recalculateFontSize();
+    }
 
     if (oldFontSize != _fontSize) {
       _scheduleNotification();
@@ -50,10 +56,13 @@ class AutoSizeGroup {
 
   void _remove(_AutoSizeTextState text) {
     final oldFontSize = _fontSize;
-    if (_listeners.remove(text) == null) {
+    final removedReport = _listeners.remove(text);
+    if (removedReport == null) {
       return;
     }
-    _recalculateFontSize();
+    if (removedReport != double.infinity && removedReport == _fontSize) {
+      _recalculateFontSize();
+    }
     if (oldFontSize != _fontSize) {
       _scheduleNotification();
     }
