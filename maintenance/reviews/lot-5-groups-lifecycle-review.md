@@ -4,21 +4,25 @@ Date : 2026-09-01
 
 Branche revue : `codex/review-groups-lifecycle`
 
-Tête revue : `f52e0b700814497f5b86068160867146e3215923`
+Tête revue : `85771f62de815fb8712bc766fd5ede3129c63dd7`
 
 Parent produit du lot : `c9a1adc006365feb3e1750069ca1e115c3f20237`
 
 Corrections revalidées : `74501688d4c86131478cf62353a59f41cfdf855d`,
 `2c3fc9076e4f1dbab789a1135b7506b65e8d04f0` et
-`f52e0b700814497f5b86068160867146e3215923`.
+`f52e0b700814497f5b86068160867146e3215923`. Oracle strict final :
+`60d1dbfac69367137e90be206002a34ff115f662` et
+`85771f62de815fb8712bc766fd5ede3129c63dd7`.
 
 ## Verdict
 
-**ACCEPTÉ**
+**CHANGEMENTS REQUIS**
 
-Aucun finding bloquant ou actionnable n'a été trouvé dans l'état, la
-coalescence, la convergence ou le cycle de vie du lot 5 après revalidation des
-trois commits correctifs.
+Aucun défaut produit n'a été trouvé dans l'état, la coalescence, la convergence
+ou le cycle de vie du lot 5. L'oracle strict tue bien le rollback complet sur
+les deux SDK. Il reste toutefois un finding test-only : ses pompes explicites
+masquent l'absence de la vague de retrait, de sorte que l'assertion finale de
+frame ne prouve pas la frame intermédiaire qu'elle consomme.
 
 Le passage de `oldWidget.group != widget.group` à
 `!identical(oldWidget.group, widget.group)` ferme bien le défaut :
@@ -47,7 +51,47 @@ les rapports, ni `G`, et ne peut pas ouvrir une seconde vague.
 
 ## Findings ordonnés
 
-Aucun.
+### [P2] L'oracle strict ne verrouille pas la frame de remontée qu'il consomme
+
+- **Fichier :** `test/group_constraints_test.dart:636`.
+- **Sévérité :** moyenne, test-only. Le produit intact est correct et le lock
+  lifecycle voisin couvre déjà la régression.
+- **Problème :** après le retrait du limiteur, le test appelle deux fois
+  `tester.pump()` sans vérifier qu'une frame a réellement été programmée entre
+  les deux. L'observateur vaut déjà 50 avant le retrait ; si `_remove` ne
+  programme aucun callback, le second pump forcé ne le reconstruit pas, mais
+  les attentes `observer == 50` et `hasScheduledFrame == false` restent vertes.
+- **Preuve :** le mutant temporaire supprimant uniquement
+  `_scheduleNotification()` dans `_remove` laisse cet oracle vert sur Flutter
+  3.41.0 et 3.47.2. Sur les mêmes pins, le lock
+  `should raise the limit once and ignore a member disposed before notify`
+  devient rouge avec `Expected: 40, Actual: 20.0`. Le probe de la séquence
+  intacte trace `remove, schedule, run, callback, callback`, puis observe
+  `hasScheduledFrame == true` avant la frame de synchronisation.
+- **Correction attendue :** après le premier pump qui retire B et consomme la
+  microtâche, ajouter `expect(tester.binding.hasScheduledFrame, isTrue)` avant
+  le pump de synchronisation. Conserver l'attente finale à `false` pour
+  interdire une republication ou une frame résiduelle.
+
+## Sanity de l'oracle strict
+
+Le nouvel ordre black-box est discriminant pour la rétention : C, de domaine
+`{70,50}`, est construit avant A ; A reste inchangé ; seul B, qui impose
+`G=25`, est retiré dans son propre `StatefulBuilder`. La frame de
+synchronisation construit donc C avant qu'un A réinitialisé puisse republier.
+
+Un rollback complet temporaire — retrait, réinscription et remise à `null` de
+`_publishedEffectiveFontSize` lors de l'erreur — rend C à 70 au lieu de 50 sur
+les deux SDK. Le produit intact rend 50 et ne laisse aucune frame résiduelle.
+Le placement des enfants tue donc bien le mutant qui échappait au premier
+renforcement.
+
+Le probe de phase retiré confirme aussi que l'exécution intacte ne masque pas
+le comportement produit : le retrait donne exactement un schedule, un run et
+deux callbacks vers les deux membres restants ; cette microtâche laisse une
+frame programmée, puis la frame de synchronisation n'écrit aucun rapport et la
+frame témoin est stable. Le finding ci-dessus porte uniquement sur la capacité
+de la régression black-box permanente à rendre rouge l'absence de cette vague.
 
 ## Vérification indépendante du modèle d'état
 
@@ -100,7 +144,7 @@ sont passées sur les deux SDK exacts :
 | Flutter 3.41.0 | `44a626f4f0` | 3.11.0 | 7/7 | 5/5 |
 | Flutter 3.47.2 | `d3b14c8769` | 3.13.2 | 7/7 | 5/5 |
 
-Sept mutants indépendants ont ensuite été appliqués un par un, rendus rouges,
+Huit mutants indépendants ont ensuite été appliqués un par un, rendus rouges,
 puis restaurés immédiatement :
 
 | Mutant temporaire | Échec discriminant observé |
@@ -111,12 +155,19 @@ puis restaurés immédiatement :
 | Supprimer `_listeners.containsKey(textState)` avant callback | Le membre monté mais retiré après le premier callback est rappelé à tort depuis le snapshot. |
 | Republier explicitement `U(R)` | Les presets disjoints convergent vers le mauvais point fixe `10/10`; le second membre vaut 10 au lieu de 30. |
 | Retirer/réinscrire lors d'un `didUpdateWidget` dans le même groupe | Une mise à jour invalide fait remonter le survivant de 20 à 40 au lieu de conserver le dernier rapport fini. |
-| Retirer/réinscrire lors d'une erreur atteinte après publication | Le témoin `{70,50}` rend 70 au lieu de 50 après retrait du limiteur, ce qui prouve que le test renforcé observe réellement la rétention du `P=50` fini. |
+| Retirer/réinscrire lors d'une erreur atteinte après publication, cache conservé | Le premier témoin `{70,50}` rend 70 au lieu de 50 après retrait du limiteur. |
+| Rollback complet du rapport et du cache publié | Le nouvel ordre strict rend 70 au lieu de 50 sur les deux pins avant qu'A puisse republier. |
 
 Ces rouges montrent que les probes testent le mécanisme réel, et pas seulement
 des frames idempotentes ou le comportement du harness. Tous les hooks, helpers,
 mutants et le fichier de probe ont été supprimés avant la matrice officielle.
 Aucune API, instrumentation ou modification produit temporaire n'est conservée.
+
+Le neuvième mutant, qui supprime seulement la notification de retrait, est le
+contre-exemple du finding : l'oracle strict reste vert, mais le lock lifecycle
+permanent devient rouge sur les deux SDK. La suite complète ne masque donc pas
+la régression produit ; seule la responsabilité locale du nouvel oracle reste
+à verrouiller.
 
 ## Convergence, callbacks tardifs et ressources
 
@@ -207,6 +258,12 @@ relus intégralement pour cette revalidation :
 - `test/group_constraints_test.dart` ;
 - `maintenance/implementation/lot-5-groups.md`.
 
+Le diff d'oracle strict, `8054bf8..85771f6`, et ses deux fichiers ont ensuite
+été relus intégralement :
+
+- `test/group_constraints_test.dart` ;
+- `maintenance/implementation/lot-5-groups.md`.
+
 Ont aussi été lus intégralement pour le contrat ou les vérifications croisées :
 
 - `maintenance/decisions/group-projection-oracle.md` ;
@@ -242,10 +299,13 @@ fichiers du lot et des quatre fichiers du diff correctif :
   non bornée ; le recalcul du minimum reste `O(M)` comme prévu ;
 - **ressources** : aucun painter supplémentaire dans la projection, painters
   existants libérés dans `finally`, aucun état démonté rappelé ;
-- **qualité des tests** : probes capables de tuer sept mutants, compteurs de
-  phase séparés et frames témoins explicites.
+- **qualité des tests** : rollback complet tué, huit mutants rouges dans leur
+  oracle, et un neuvième mutant révélant que la présence de la frame de retrait
+  n'est pas assertée localement ; compteurs de phase séparés et frames témoins
+  explicites.
 
-Aucune zone du périmètre demandé n'est restée non vérifiée. La seule limite est
-intentionnelle : les hooks privés de phase sont des probes de revue retirés et
-ne deviennent pas une API permanente. Le code produit final, les tests
-permanents et le worktree ont été revérifiés sans ces hooks.
+Aucune zone du périmètre demandé n'est restée non vérifiée. Les hooks privés de
+phase restent des probes de revue retirés et ne deviennent pas une API
+permanente. Le code produit final, les tests permanents et le worktree ont été
+revérifiés sans ces hooks. La seule action restante est l'assertion de frame
+intermédiaire décrite dans le finding P2.
