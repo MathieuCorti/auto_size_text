@@ -53,6 +53,14 @@ class GroupTestState extends State<GroupTest> {
   }
 }
 
+final class _EqualAutoSizeGroup extends AutoSizeGroup {
+  @override
+  bool operator ==(Object other) => other is _EqualAutoSizeGroup;
+
+  @override
+  int get hashCode => 0;
+}
+
 void _expectFontSizes(WidgetTester tester, double fontSize) {
   final texts = tester.widgetList(find.byType(Text));
   for (final text in texts) {
@@ -203,6 +211,85 @@ void main() {
           effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
           50,
         );
+      },
+    );
+
+    testWidgets(
+      'should transfer between equal groups using controller identity',
+      (tester) async {
+        final firstGroup = _EqualAutoSizeGroup();
+        final secondGroup = _EqualAutoSizeGroup();
+        const movingWidgetKey = ValueKey<String>('equal-moving-widget');
+        const movingTextKey = ValueKey<String>('equal-moving-text');
+        const firstSurvivorKey = ValueKey<String>('equal-first-survivor');
+        const secondSurvivorKey = ValueKey<String>('equal-second-survivor');
+        AutoSizeGroup membership = firstGroup;
+        var movingSize = 20.0;
+        late StateSetter update;
+
+        expect(firstGroup, equals(secondGroup));
+        expect(identical(firstGroup, secondGroup), isFalse);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Column(
+                  children: <Widget>[
+                    AutoSizeText(
+                      '',
+                      key: movingWidgetKey,
+                      textKey: movingTextKey,
+                      style: TextStyle(fontSize: movingSize),
+                      presetFontSizes: <double>[movingSize],
+                      textScaler: TextScaler.noScaling,
+                      group: membership,
+                    ),
+                    AutoSizeText(
+                      '',
+                      textKey: firstSurvivorKey,
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: firstGroup,
+                    ),
+                    AutoSizeText(
+                      '',
+                      textKey: secondSurvivorKey,
+                      style: const TextStyle(fontSize: 40),
+                      presetFontSizes: const <double>[40, 20],
+                      textScaler: TextScaler.noScaling,
+                      group: secondGroup,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pump();
+
+        update(() => membership = secondGroup);
+        await tester.pump();
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(<double>[
+          effectiveFontSize(tester.widget(find.byKey(movingTextKey))),
+          effectiveFontSize(tester.widget(find.byKey(firstSurvivorKey))),
+          effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
+        ], orderedEquals(<double>[20, 40, 20]));
+
+        update(() => movingSize = 30);
+        await tester.pump();
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(<double>[
+          effectiveFontSize(tester.widget(find.byKey(movingTextKey))),
+          effectiveFontSize(tester.widget(find.byKey(firstSurvivorKey))),
+          effectiveFontSize(tester.widget(find.byKey(secondSurvivorKey))),
+        ], orderedEquals(<double>[30, 40, 20]));
+        expect(tester.binding.hasScheduledFrame, isFalse);
       },
     );
 

@@ -579,7 +579,9 @@ void main() {
       (tester) async {
         final group = AutoSizeGroup();
         const projectedKey = ValueKey<String>('invalid-projection');
+        const observerKey = ValueKey<String>('invalid-projection-observer');
         TextScaler scaler = const _ProjectionInvalidTextScaler();
+        var showLimiter = true;
         late StateSetter update;
 
         await tester.pumpWidget(
@@ -602,13 +604,26 @@ void main() {
                         group: group,
                       ),
                     ),
+                    if (showLimiter)
+                      SizedBox(
+                        width: 100,
+                        height: 100,
+                        child: AutoSizeText(
+                          '',
+                          style: const TextStyle(fontSize: 25),
+                          presetFontSizes: const <double>[25],
+                          textScaler: TextScaler.noScaling,
+                          group: group,
+                        ),
+                      ),
                     SizedBox(
                       width: 100,
                       height: 100,
                       child: AutoSizeText(
                         '',
-                        style: const TextStyle(fontSize: 25),
-                        presetFontSizes: const <double>[25],
+                        textKey: observerKey,
+                        style: const TextStyle(fontSize: 70),
+                        presetFontSizes: const <double>[70, 50],
                         textScaler: TextScaler.noScaling,
                         group: group,
                       ),
@@ -628,6 +643,13 @@ void main() {
         await tester.pump();
         expect(tester.takeException(), isNull);
         expect(_effectiveSize(tester, projectedKey), 20);
+
+        update(() => showLimiter = false);
+        await tester.pump();
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(_effectiveSize(tester, projectedKey), 50);
+        expect(_effectiveSize(tester, observerKey), 50);
       },
     );
 
