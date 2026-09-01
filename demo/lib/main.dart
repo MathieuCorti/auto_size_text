@@ -1,7 +1,5 @@
-import 'package:bottom_navy_bar/bottom_navy_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import 'max_lines_demo.dart';
 import 'min_font_size_demo.dart';
@@ -10,33 +8,37 @@ import 'preset_font_sizes_demo.dart';
 import 'step_granularity.dart';
 import 'sync_demo.dart';
 
-void main() {
-  runApp(App());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  runApp(const App());
 }
 
 class App extends StatelessWidget {
+  const App({super.key});
+
   @override
   Widget build(BuildContext context) {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-
-    SystemChrome.setEnabledSystemUIOverlays([]);
-
     return MaterialApp(
-      theme: ThemeData.light(),
-      home: DemoApp(),
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(colorSchemeSeed: Colors.blue),
+      home: const DemoApp(),
     );
   }
 }
 
 class DemoApp extends StatefulWidget {
+  const DemoApp({super.key});
+
   @override
-  _DemoAppState createState() => _DemoAppState();
+  State<DemoApp> createState() => _DemoAppState();
 }
 
-List<MaterialColor> colors = [
+const List<MaterialColor> _demoColors = <MaterialColor>[
   Colors.red,
   Colors.purple,
   Colors.indigo,
@@ -45,7 +47,7 @@ List<MaterialColor> colors = [
   Colors.blueGrey,
 ];
 
-List<String> demoNames = [
+const List<String> _demoNames = <String>[
   'MaxLines',
   'MinFontSize',
   'Group',
@@ -57,7 +59,7 @@ List<String> demoNames = [
 class _DemoAppState extends State<DemoApp> {
   bool _richText = false;
   int _selectedDemo = 0;
-  MaterialColor get _selectedColor => colors[_selectedDemo];
+  MaterialColor get _selectedColor => _demoColors[_selectedDemo];
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +72,7 @@ class _DemoAppState extends State<DemoApp> {
             children: <Widget>[
               Text(
                 _richText ? 'Rich Text' : 'Normal Text',
-                style: TextStyle(color: Colors.black, inherit: true),
+                style: const TextStyle(color: Colors.black, inherit: true),
               ),
               Switch(
                 value: _richText,
@@ -79,65 +81,45 @@ class _DemoAppState extends State<DemoApp> {
                     _richText = richText;
                   });
                 },
-                activeColor: _selectedColor[400],
+                activeThumbColor: _selectedColor[400],
                 activeTrackColor: _selectedColor[200],
-              )
+              ),
             ],
           ),
         ],
         title: Text(
-          'AutoSizeText: ${demoNames[_selectedDemo]}',
-          style: TextStyle(
-            color: _selectedColor[500],
-            inherit: true,
-          ),
+          'AutoSizeText: ${_demoNames[_selectedDemo]}',
+          style: TextStyle(color: _selectedColor[500], inherit: true),
         ),
       ),
       body: Container(
         color: _selectedColor[50],
-        child: Padding(
-          padding: EdgeInsets.all(15),
-          child: _buildDemo(),
-        ),
+        child: Padding(padding: const EdgeInsets.all(15), child: _buildDemo()),
       ),
-      bottomNavigationBar: BottomNavyBar(
+      bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedDemo,
-        onItemSelected: (index) {
+        indicatorColor: _selectedColor[100],
+        onDestinationSelected: (index) {
           setState(() {
             _selectedDemo = index;
           });
         },
-        items: [
-          BottomNavyBarItem(
+        destinations: const <NavigationDestination>[
+          NavigationDestination(
             icon: Icon(Icons.view_headline),
-            title: Text('maxLines'),
-            activeColor: colors[0],
+            label: 'maxLines',
           ),
-          BottomNavyBarItem(
-            icon: Icon(MdiIcons.formatFontSizeDecrease, size: 26),
-            title: Text('minFontSize'),
-            activeColor: colors[1],
+          NavigationDestination(
+            icon: Icon(Icons.text_fields),
+            label: 'minFontSize',
           ),
-          BottomNavyBarItem(
-            icon: Icon(Icons.sync, size: 26),
-            title: Text('group'),
-            activeColor: colors[2],
-          ),
-          BottomNavyBarItem(
+          NavigationDestination(icon: Icon(Icons.sync), label: 'group'),
+          NavigationDestination(
             icon: Icon(Icons.format_size),
-            title: Text('granularity'),
-            activeColor: colors[3],
+            label: 'granularity',
           ),
-          BottomNavyBarItem(
-            icon: Icon(Icons.settings),
-            title: Text('preset'),
-            activeColor: colors[4],
-          ),
-          BottomNavyBarItem(
-            icon: Icon(MdiIcons.stackOverflow),
-            title: Text('replacement'),
-            activeColor: colors[5],
-          ),
+          NavigationDestination(icon: Icon(Icons.settings), label: 'preset'),
+          NavigationDestination(icon: Icon(Icons.layers), label: 'replacement'),
         ],
       ),
     );

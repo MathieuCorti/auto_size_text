@@ -5,18 +5,18 @@ import 'text_card.dart';
 import 'utils.dart';
 
 class SyncDemo extends StatefulWidget {
+  const SyncDemo(this.richText, {super.key});
+
   final bool richText;
 
-  SyncDemo(this.richText);
-
   @override
-  _SyncDemoState createState() => _SyncDemoState();
+  State<SyncDemo> createState() => _SyncDemoState();
 }
 
 class _SyncDemoState extends State<SyncDemo>
     with SingleTickerProviderStateMixin {
   double _scale = 0;
-  var group = AutoSizeGroup();
+  final AutoSizeGroup _group = AutoSizeGroup();
   late AnimationController _controller;
 
   @override
@@ -24,7 +24,7 @@ class _SyncDemoState extends State<SyncDemo>
     super.initState();
 
     _controller = AnimationController(
-      duration: Duration(milliseconds: 5000),
+      duration: const Duration(seconds: 5),
       vsync: this,
     );
     _controller.addListener(() {
@@ -35,7 +35,10 @@ class _SyncDemoState extends State<SyncDemo>
 
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        Future.delayed(Duration(seconds: 3), () {
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (!mounted) {
+            return;
+          }
           _controller.forward(from: 0.1);
         });
       }
@@ -52,7 +55,6 @@ class _SyncDemoState extends State<SyncDemo>
 
   @override
   Widget build(BuildContext context) {
-    final group = AutoSizeGroup();
     const text =
         'These AutoSizeTexts fit the available space and synchronize their '
         'text sizes.';
@@ -63,57 +65,58 @@ class _SyncDemoState extends State<SyncDemo>
             title: 'AutoSizeText 1',
             child: Visibility(
               visible: !widget.richText,
-              child: AutoSizeText(
-                text,
-                group: group,
-                style: TextStyle(fontSize: 40),
-                stepGranularity: 0.1,
-                maxLines: 3,
-              ),
               replacement: AutoSizeText.rich(
                 spanFromString(text),
-                group: group,
-                style: TextStyle(fontSize: 40),
+                group: _group,
+                style: const TextStyle(fontSize: 40),
                 stepGranularity: 0.1,
                 maxLines: 4,
+              ),
+              child: AutoSizeText(
+                text,
+                group: _group,
+                style: const TextStyle(fontSize: 40),
+                stepGranularity: 0.1,
+                maxLines: 3,
               ),
             ),
           ),
         ),
-        SizedBox(height: 10.0),
+        const SizedBox(height: 10),
         Expanded(
           child: Row(
             children: <Widget>[
               Flexible(
                 flex: ((1000 - _scale * 1000) / 2).round(),
-                child: Container(),
+                child: const SizedBox.shrink(),
               ),
               Flexible(
+                key: const ValueKey<String>('sync-resizing-text'),
                 flex: (_scale * 1000).round(),
                 child: TextCard(
                   title: 'AutoSizeText 2',
                   child: Visibility(
                     visible: !widget.richText,
-                    child: AutoSizeText(
-                      text,
-                      group: group,
-                      style: TextStyle(fontSize: 40),
-                      stepGranularity: 0.1,
-                      maxLines: 3,
-                    ),
                     replacement: AutoSizeText.rich(
                       spanFromString(text),
-                      group: group,
-                      style: TextStyle(fontSize: 40),
+                      group: _group,
+                      style: const TextStyle(fontSize: 40),
                       stepGranularity: 0.1,
                       maxLines: 4,
+                    ),
+                    child: AutoSizeText(
+                      text,
+                      group: _group,
+                      style: const TextStyle(fontSize: 40),
+                      stepGranularity: 0.1,
+                      maxLines: 3,
                     ),
                   ),
                 ),
               ),
               Flexible(
                 flex: ((1000 - _scale * 1000) / 2).round(),
-                child: Container(),
+                child: const SizedBox.shrink(),
               ),
             ],
           ),

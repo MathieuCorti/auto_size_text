@@ -1,0 +1,75 @@
+# Generated Dart and Flutter state.
+/.dart_tool/
+**/.dart_tool/
+/.packages
+/.pub/
+**/.pub/
+/.flutter-plugins
+/.flutter-plugins-dependencies
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+/build/
+**/build/
+/doc/api/
+/pubspec.lock
+
+# Local editor and operating-system state.
+.DS_Store
+**/.DS_Store
+/.idea/
+**/.idea/
+/.vscode/
+**/.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+
+# Generated platform projects and coverage output.
+/android/
+**/android/
+/ios/
+**/ios/
+/coverage/
+**/coverage/
+*.lcov
+lcov.info
+coverage.json
+
+# Repository-only material and application lockfiles.
+/.github/
+/maintenance/
+/demo/
+/example/pubspec.lock
+
+# Local configuration, credentials, keys, and signatures.
+**/local.properties
+**/key.properties
+**/keystore.properties
+**/.env
+**/.env.*
+**/.secrets/
+**/secrets/
+**/*.secret
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pfx
+**/*.pem
+**/*.key
+**/*.ppk
+**/*.der
+**/*.cer
+**/*.crt
+**/*.mobileprovision
+**/*.provisionprofile
+**/*.sig
+**/*.asc
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Historical Gradle wrapper artifacts must never re-enter this package.
+**/gradle-wrapper.jar
+**/gradlew
+**/gradlew.bat

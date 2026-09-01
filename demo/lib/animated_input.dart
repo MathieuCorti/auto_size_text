@@ -6,10 +6,10 @@ class AnimatedInput extends StatefulWidget {
   final String text;
   final InputBuilder builder;
 
-  AnimatedInput({required this.text, required this.builder});
+  const AnimatedInput({super.key, required this.text, required this.builder});
 
   @override
-  _AnimatedInputState createState() => _AnimatedInputState();
+  State<AnimatedInput> createState() => _AnimatedInputState();
 }
 
 class _AnimatedInputState extends State<AnimatedInput>
@@ -40,8 +40,11 @@ class _AnimatedInputState extends State<AnimatedInput>
 
     number.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        Future.delayed(Duration(seconds: 3), () {
-          if (mounted) _controller.forward(from: 0);
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (!mounted) {
+            return;
+          }
+          _controller.forward(from: 0);
         });
       }
     });

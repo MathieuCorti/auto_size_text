@@ -8,12 +8,13 @@ import 'utils.dart';
 class OverflowReplacementDemo extends StatelessWidget {
   final bool richText;
 
-  OverflowReplacementDemo(this.richText);
+  const OverflowReplacementDemo(this.richText, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return AnimatedInput(
-      text: 'This String\'s size will not be smaller than 20. It will be '
+      text:
+          'This String\'s size will not be smaller than 20. It will be '
           'automatically resized to fit on 4 lines. Otherwise, it will be '
           'replaced by a replacement String! Here is some random stuff, just '
           'to make sure it is long enough.',
@@ -24,11 +25,7 @@ class OverflowReplacementDemo extends StatelessWidget {
               child: TextCard(
                 title: 'Text',
                 child: !richText
-                    ? Text(
-                        input,
-                        style: TextStyle(fontSize: 30),
-                        maxLines: 4,
-                      )
+                    ? Text(input, style: TextStyle(fontSize: 30), maxLines: 4)
                     : Text.rich(
                         spanFromString(input),
                         style: TextStyle(fontSize: 30),
@@ -47,10 +44,7 @@ class OverflowReplacementDemo extends StatelessWidget {
                         minFontSize: 20,
                         overflowReplacement: Text(
                           'String cannot be displayed.',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontSize: 20,
-                          ),
+                          style: TextStyle(color: Colors.red, fontSize: 20),
                         ),
                         maxLines: 4,
                       )
@@ -60,10 +54,7 @@ class OverflowReplacementDemo extends StatelessWidget {
                         minFontSize: 20,
                         overflowReplacement: Text(
                           'String cannot be displayed.',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontSize: 20,
-                          ),
+                          style: TextStyle(color: Colors.red, fontSize: 20),
                         ),
                         maxLines: 4,
                       ),

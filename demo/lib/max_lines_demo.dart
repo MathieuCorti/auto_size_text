@@ -8,7 +8,7 @@ import 'utils.dart';
 class MaxlinesDemo extends StatelessWidget {
   final bool richText;
 
-  MaxlinesDemo(this.richText);
+  const MaxlinesDemo(this.richText, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,10 +21,7 @@ class MaxlinesDemo extends StatelessWidget {
               child: TextCard(
                 title: 'Text',
                 child: !richText
-                    ? Text(
-                        input,
-                        style: TextStyle(fontSize: 30),
-                      )
+                    ? Text(input, style: TextStyle(fontSize: 30))
                     : Text.rich(
                         spanFromString(input),
                         style: TextStyle(fontSize: 30),
