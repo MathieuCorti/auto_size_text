@@ -6,17 +6,23 @@ Branche revue : `codex/review-groups`
 
 Parent produit exact S5 : `c9a1adc006365feb3e1750069ca1e115c3f20237`
 
-Candidat revu : `b32100fc1763266211d90748be61e7ed736c4101`
+Candidat initial : `b32100fc1763266211d90748be61e7ed736c4101`
 
-Plage revue : `c9a1adc..b32100f`
+Correctifs contre-revus :
+
+- `b159cc5` — régressions de rétention et d'identité ;
+- `cbd3641` — comparaison des contrôleurs par identité ;
+- `5d3fb6a5585921dabd134b0c8a5f1ff87d4b897e` — journal corrigé.
+
+Plages revues : `c9a1adc..b32100f`, puis `fb306d0..5d3fb6a`
 
 Périmètre : unités logique/effective `L/P/G/R`, projection dans le domaine de
 chaque membre, scalers linéaires/non linéaires/plateaux, replacement, erreurs,
 publication, `didUpdateWidget`, transfert/retrait/dispose, coalescence de
 microtâches, ordre de layout, convergence, complexité, compatibilité des lots
-2 à 4 et qualité des preuves rouges/vertes. Aucun correctif produit ou test
-permanent n'a été écrit par cette revue ; le présent rapport est son seul
-livrable.
+2 à 4 et qualité des preuves rouges/vertes. La première revue puis la
+contre-revue n'ont écrit aucun correctif produit ou test ; le présent rapport
+mis à jour est leur seul livrable.
 
 ## Verdict
 
@@ -30,39 +36,37 @@ non linéaires, plateaux, remplacement local, valeurs invalides, suppression,
 dispose et coalescence passent sur les deux SDK exacts. La recherche reste
 logarithmique et ne matérialise pas les grandes grilles.
 
-Deux findings restent toutefois ouverts :
+Le P2 produit est clos : `didUpdateWidget` compare les contrôleurs avec
+`identical`, et sa régression couvre transfert, transition ultérieure,
+assertions et frame témoin sur les deux SDK. Le P1 de preuve reste en revanche
+ouvert. Le test renforcé tue le rollback partiel qui conserve le cache, mais un
+rollback transactionnel qui réinitialise à la fois le rapport et le cache
+survit sur Flutter 3.41.0 et 3.47.2. L'exigence bloquante 10 de l'oracle n'est
+donc toujours pas entièrement prouvée. Aucun P0, P2 restant ou P3 actionnable
+n'a été trouvé.
 
-- un P1 de preuve : la régression censée verrouiller la conservation du rapport
-  après une exception de projection laisse survivre exactement le mutant de
-  rollback interdit par l'oracle ;
-- un P2 produit : un transfert entre deux contrôleurs distincts mais égaux au
-  sens de `==` n'est pas détecté, ce qui laisse le membre dans l'ancien groupe
-  et absent du nouveau.
+## Statut des findings
 
-Il n'y a aucun P0 ni autre P3 actionnable.
-
-## Findings
-
-### P1 — le test d'exception ne prouve pas la conservation non transactionnelle du rapport
+### P1 ouvert — la récupération republie 50 avant l'observation du rollback
 
 **Fichiers :**
 
-- `test/group_constraints_test.dart:577-631` ;
+- `test/group_constraints_test.dart:577-653` ;
 - `maintenance/implementation/lot-5-groups.md:59-64` ;
 - contrat : `maintenance/decisions/group-lifecycle-adversarial-oracle.md`,
   contrainte d'acceptation 10.
 
-Le test publie d'abord `P_A=50`, puis garde un membre B dont l'unique candidat
-publie `P_B=25`. La projection de A rencontre ensuite `NaN` à 20 et lève bien
-`ArgumentError`. Pour la récupération, le test remplace le scaler de A par
-l'identité tout en laissant B dans le groupe, puis attend `R_A=20`.
+Le test initial publiait `P_A=50`, puis gardait un membre B dont l'unique
+candidat publiait `P_B=25`. La projection de A rencontre ensuite `NaN` à 20 et
+lève bien `ArgumentError`. Pour la récupération, le test remplace le scaler de
+A par l'identité tout en laissant B dans le groupe, puis attend `R_A=20`.
 
 Cette dernière valeur ne dépend pas de la conservation de `P_A`. Si le rapport
 50 est correctement retenu, `G=min(50,25)=25` et A rend 20. Si l'exception
 annule illégalement le rapport de A vers `+∞`, B impose encore
 `G=min(+∞,25)=25` et A rend également 20. L'assertion est donc tautologique
 pour la propriété qu'elle prétend établir. Le journal affirme à tort que ce
-20 « permet » de prouver la rétention.
+20 « permet » de prouver la rétention. C'était le P1 initial.
 
 La revue a vérifié ce point avec une archive temporaire propre de `b32100f`.
 Un mutant limité au bloc de projection exécutait, dans le `catch`,
@@ -80,35 +84,78 @@ resté vert :
 1/1, All tests passed
 ```
 
-Un témoin discriminant temporaire a ajouté un troisième membre C avec
-`P_C=70` et le domaine `{70,50}`. Après l'exception, il retire B et rétablit le
-scaler valide de A. Le produit intact rend C à 50, car le rapport retenu de A
-impose `G=50`. Le mutant rend C à 70, car A reste à `+∞`. Avec la même commande
-ciblée, le produit a passé 1/1 et le mutant a échoué avec
-`Expected: 50, Actual: 70`.
+Le correctif ajoute un troisième membre C de rapport 70 et de domaine
+`{70,50}`, puis retire B et exige A=50/C=50. Il tue bien, sur les deux SDK, le
+mutant partiel `_remove(this); _register(this); rethrow;` qui remplace le
+rapport par `+∞` mais conserve `_publishedEffectiveFontSize=50` : le cache
+empêche toute republication et C rend 70.
 
-**Impact :** l'exigence bloquante 10 n'est pas protégée. Une future tentative
-de rollback, ou une régression qui réinscrit le membre à `⊥`, passerait la suite
-et pourrait être déclarée conforme alors qu'elle change l'état partagé après
-exception.
+Cependant, le test rétablit d'abord le scaler de A :
 
-**Correction attendue :** conserver une régression permanente à trois membres
-ou un observateur équivalent. Après l'exception, retirer le membre qui impose
-25 et vérifier indépendamment que le groupe reste borné à 50. Le test doit
-échouer si le rapport est supprimé, remis à `⊥` ou remplacé par une valeur
-dérivée de `R`. Corriger en même temps la justification du journal. Aucun
-changement du code produit actuel n'est nécessaire pour ce finding.
+```dart
+update(() => scaler = TextScaler.noScaling);
+await tester.pump();
+// ...
+update(() => showLimiter = false);
+```
 
-### P2 — `didUpdateWidget` confond égalité et identité des contrôleurs
+Cette reconstruction rend le témoin non discriminant pour un rollback
+transactionnel complet. La contre-revue a utilisé dans le `catch` :
+
+```dart
+group._remove(this);
+group._register(this);
+_publishedEffectiveFontSize = null;
+rethrow;
+```
+
+Au pump de récupération, A recalcule `P_A=50`, voit le cache nul et republie
+50 avant le retrait de B. A et C rendent donc ensuite 50 exactement comme sur
+le produit intact. Le test permanent final reste vert 1/1 avec ce mutant sous
+Flutter 3.41.0 et 3.47.2. C'est un rollback naturel à tester : remettre le
+rapport à `⊥` et invalider son cache sont les deux moitiés cohérentes d'une
+annulation transactionnelle.
+
+L'oracle ferme explicitement cette échappatoire : il demande de retirer le
+voisin « sans reconstruire A avec une nouvelle configuration », puis
+d'observer le rapport fini 50, ou d'utiliser un probe privé si la gestion de
+`ErrorWidget` rend la preuve black-box trop fragile. Le journal affirme donc
+encore une fermeture plus large que celle réellement obtenue.
+
+**Impact :** une future implémentation de rollback complet passerait tous les
+tests et pourrait être déclarée conforme, tout en effaçant illégalement le
+rapport partagé au moment de l'exception.
+
+**Correction attendue :** retirer B sans changer préalablement le scaler de A
+et observer C avant toute republication possible de A, avec ordre de layout
+contrôlé et sous-arbre du limiteur isolé. Une instrumentation privée temporaire
+du coordinateur est préférable si ce montage dépend trop du scheduling. Le
+gate doit tuer les deux mutants : cache conservé **et** cache réinitialisé.
+
+Commandes exactes du mutant complet survivant :
+
+```text
+/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
+  --suppress-analytics --no-version-check test --no-pub \
+  --reporter expanded test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+
+/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
+  --suppress-analytics --no-version-check test --no-pub \
+  --reporter expanded test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+```
+
+### P2 clos — transfert fondé sur l'identité des contrôleurs
 
 **Fichiers :**
 
 - `lib/src/auto_size_text.dart:250-258` ;
 - effet observable dans `lib/src/auto_size_group.dart:9-20` ;
-- absence de cas discriminant dans `test/group_test.dart:120-207`.
+- régression dans `test/group_test.dart:214-292`.
 
-`AutoSizeGroup` est une classe publique sous-classable. Pourtant,
-`didUpdateWidget` utilise :
+`AutoSizeGroup` est une classe publique sous-classable. Le candidat initial
+utilisait :
 
 ```dart
 if (oldWidget.group != widget.group) {
@@ -141,18 +188,44 @@ Actual:   20.0
 insère tardivement A dans g2 mais ne le supprime toujours pas de g1 ; l'ancien
 groupe garde donc une contribution et des callbacks fantômes.
 
-La comparaison par égalité est historique, mais le cache du lot 5 change le
+La comparaison par égalité était historique, mais le cache du lot 5 changeait le
 mode d'échec : auparavant la publication systématique insérait au moins A dans
 g2, tout en le laissant incorrectement dans g1 ; désormais une publication
 inchangée est sautée et A n'appartient pas du tout au nouveau groupe. Le lot 5
-modifie donc matériellement cette interaction.
+modifiait donc matériellement cette interaction.
 
-**Correction attendue :** comparer les contrôleurs par identité :
-`if (!identical(oldWidget.group, widget.group))`, puis conserver le retrait,
-l'inscription et la remise à `null` du cache dans cette branche. Ajouter une
-régression avec deux contrôleurs distincts mais `==`, et vérifier transfert,
-variation ultérieure de `P`, absence de callback de l'ancien groupe et absence
-d'exception.
+Le code corrigé utilise désormais
+`if (!identical(oldWidget.group, widget.group))`, puis retire l'ancien rapport,
+inscrit le membre dans le nouveau contrôleur et remet le cache à `null`. Le
+test permanent crée deux `_EqualAutoSizeGroup` distincts qui comparent égaux.
+Il exige après transfert `A/B/C=[20,40,20]`, puis change `P_A` à 30 et exige
+`[30,40,20]`, aucune exception et aucune frame restante.
+
+Ce test passe intégralement sous Flutter 3.41.0 et 3.47.2. Le mutant qui remet
+`oldWidget.group != widget.group` échoue sur les deux avec
+`Actual: [20,20,40]`. Un probe temporaire de contre-revue a accepté ce premier
+état erroné pour atteindre la transition suivante : `_updateFontSize` lève
+alors exactement l'assertion `_listeners.containsKey(text)`, confirmant que la
+seconde moitié du test protège un mode d'échec distinct.
+
+Une recherche exhaustive dans `lib` ne trouve aucune autre comparaison entre
+deux contrôleurs. Les autres occurrences sont des gardes de nullité et des
+tests de présence d'état dans la map ; elles ne consultent pas une égalité de
+contrôleur concurrente.
+
+Commandes mutantes exactes :
+
+```text
+/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
+  --suppress-analytics --no-version-check test --no-pub \
+  --reporter expanded test/group_test.dart \
+  --plain-name 'should transfer between equal groups using controller identity'
+
+/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
+  --suppress-analytics --no-version-check test --no-pub \
+  --reporter expanded test/group_test.dart \
+  --plain-name 'should transfer between equal groups using controller identity'
+```
 
 ## Audit fonctionnel du code produit
 
@@ -176,8 +249,8 @@ Les sorties de scaler utilisées pour `P` et pour chaque prédicat de projection
 sont validées finies et non négatives, avec canonicalisation du seul zéro.
 Une erreur avant publication conserve l'ancien rapport du même groupe ; une
 erreur après publication conserve le nouveau rapport fini. Le code produit
-satisfait ces deux frontières, sous réserve du P1 qui concerne leur preuve
-permanente.
+satisfait ces deux frontières. La preuve permanente ne tue toutefois que le
+rollback qui oublie de réinitialiser le cache, conformément au P1 ouvert.
 
 ### État, microtâches et cycle de vie
 
@@ -256,7 +329,7 @@ deux rouges exclusivement lot 5 : domaine+scaler et preset disjoint.
   test/preset_font_sizes_test.dart
 ```
 
-## Matrice indépendante sur `b32100f`
+## Matrice indépendante finale sur `5d3fb6a`
 
 Toolchains exactes :
 
@@ -302,7 +375,7 @@ cd ..
 
 Résultats : résolution racine et exemple réussies ; lock d'exemple inchangé ;
 26 fichiers formatés sans changement ; analyses package/tests et exemple sans
-diagnostic ; ciblés 60/60, dont neuf cas lifecycle/leak ; suite 114/114.
+diagnostic ; ciblés 61/61, dont neuf cas lifecycle/leak ; suite 115/115.
 
 ### Flutter 3.41.0
 
@@ -344,19 +417,19 @@ cd ..
 ```
 
 Résultats : 26 dépendances racine et 10 exemple résolues ; analyses sans
-diagnostic ; ciblés 60/60 ; suite avant downgrade 114/114 ; neuf dépendances
-abaissées ; suite après downgrade 114/114. Les cas lifecycle/leak sont inclus
+diagnostic ; ciblés 61/61 ; suite avant downgrade 115/115 ; neuf dépendances
+abaissées ; suite après downgrade 115/115. Les cas lifecycle/leak sont inclus
 à la fois dans les ciblés et dans les deux suites complètes.
 
 Contrôles complémentaires :
 
 ```text
-git diff --check c9a1adc..b32100f
+git diff --check fb306d0..5d3fb6a
 git rev-parse HEAD
 git branch --show-current
 ```
 
-Résultat : diff propre ; tête exacte `b32100f...` ; branche
+Résultat : diff propre ; tête exacte `5d3fb6a...` ; branche
 `codex/review-groups`. Toutes les extractions parent/minimum, les mutants, les
 tests de probe, les `.dart_tool`, builds et locks racine générés ont été
 supprimés avant rédaction. Le lock d'exemple suivi n'a pas changé.
@@ -376,6 +449,14 @@ Les 11 fichiers du diff ont été relus entièrement :
 9. `test/group_test.dart` ;
 10. `test/preset_font_sizes_test.dart` ;
 11. `test/text_scaler_test.dart`.
+
+La contre-revue a relu intégralement chacun des quatre fichiers du delta
+`fb306d0..5d3fb6a` :
+
+1. `lib/src/auto_size_text.dart` ;
+2. `maintenance/implementation/lot-5-groups.md` ;
+3. `test/group_constraints_test.dart` ;
+4. `test/group_test.dart`.
 
 Le contexte directement interactif a également été lu intégralement :
 
@@ -404,7 +485,8 @@ Checklist complète : injection, XSS, authentification, autorisation/IDOR,
 CSRF, session, cryptographie et divulgation d'information sont hors surface ;
 aucun défaut applicable trouvé. Les races/TOCTOU ont été examinées sur
 publication, coalescence, snapshot courant, transfert et dispose : le chemin
-nominal est propre, avec le P2 d'identité signalé. La disponibilité a été
+nominal est propre et le P2 d'identité est clos. La disponibilité a été
 contrôlée par le domaine virtuel et la revue des allocations : aucun nouveau
-DoS actionnable. La logique métier et la qualité des tests produisent les deux
-findings ci-dessus. Aucune zone du diff n'est restée non vérifiée.
+DoS actionnable. La qualité de la preuve d'exception laisse le P1 ci-dessus
+ouvert ; aucun autre finding n'est apparu. Aucune zone du diff n'est restée non
+vérifiée.
