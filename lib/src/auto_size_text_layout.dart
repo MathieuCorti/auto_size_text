@@ -65,6 +65,61 @@ void _requireFiniteNonNegative(double value, String name) {
   }
 }
 
+final RegExp _historicalWhitespace = RegExp(r'\s');
+
+Iterable<TextRange> _unbreakableTextRanges(String text) sync* {
+  var rangeStart = 0;
+  for (final match in _historicalWhitespace.allMatches(text)) {
+    final separator = match.group(0)!;
+    if (separator == '\u00A0' || separator == '\u202F') {
+      continue;
+    }
+    if (rangeStart < match.start) {
+      yield TextRange(start: rangeStart, end: match.start);
+    }
+    rangeStart = match.end;
+  }
+  if (rangeStart < text.length) {
+    yield TextRange(start: rangeStart, end: text.length);
+  }
+}
+
+bool _containsWidgetSpan(InlineSpan text) {
+  var containsWidgetSpan = false;
+  text.visitChildren((span) {
+    if (span is WidgetSpan) {
+      containsWidgetSpan = true;
+      return false;
+    }
+    return true;
+  });
+  return containsWidgetSpan;
+}
+
+TextSpan _applyTextStyleOverride(TextSpan text, TextStyle? override) {
+  if (override == null || text.runtimeType != TextSpan) {
+    return text;
+  }
+  return TextSpan(
+    text: text.text,
+    children: text.children?.map((child) {
+      if (child is TextSpan && child.runtimeType == TextSpan) {
+        return _applyTextStyleOverride(child, override);
+      }
+      return child;
+    }).toList(),
+    style: text.style?.merge(override) ?? override,
+    recognizer: text.recognizer,
+    mouseCursor: text.mouseCursor,
+    onEnter: text.onEnter,
+    onExit: text.onExit,
+    semanticsLabel: text.semanticsLabel,
+    semanticsIdentifier: text.semanticsIdentifier,
+    locale: text.locale,
+    spellOut: text.spellOut,
+  );
+}
+
 final class _CandidateTextScaler extends TextScaler {
   _CandidateTextScaler({
     required this.source,
@@ -121,6 +176,7 @@ final class _EffectiveTextConfiguration {
   const _EffectiveTextConfiguration({
     required this.baseStyle,
     required this.measurementStyle,
+    required this.measurementTextStyleOverride,
     required this.renderStyle,
     required this.measurementStrutStyle,
     required this.textAlign,
@@ -136,6 +192,7 @@ final class _EffectiveTextConfiguration {
 
   final TextStyle baseStyle;
   final TextStyle measurementStyle;
+  final TextStyle? measurementTextStyleOverride;
   final TextStyle? renderStyle;
   final StrutStyle? measurementStrutStyle;
   final TextAlign textAlign;
