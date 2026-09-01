@@ -4,11 +4,17 @@ Date : 2026-09-02
 
 Base S7 auditée : `cc5da0eafcfd17130978041fa1bcc638dfa10d20`
 
-Tête auditée : `033a938474d432a27bbc29cf30943c69991ee68a`
+Tête auditée : `33c8bab146f6f29878101b111ccc617b5e96d685`
 
 ## Verdict
 
 **ACCEPTÉ.** Aucun finding fonctionnel ou safety P0, P1 ou P2 n'est ouvert.
+
+Le P2 lifecycle identifié après la première passe est fermé par le correctif
+`43bb690`. Une exception issue du scaler utilisateur ne franchit plus les six
+frontières non-wet et ne peut donc plus laisser les gardes internes de Flutter
+armés. La capture reste typée et confinée au scaler ; les erreurs de paragraphe,
+assertions et erreurs Flutter hors scaler ne sont pas converties en fallback.
 
 La frontière `LayoutBuilder` a disparu du chemin texte. Le nouveau parent
 render sélectionne depuis un snapshot, échange son unique child uniquement
@@ -30,6 +36,10 @@ cc5da0e  S7, décision lean revue
 └─ 1d0225f  reproductions rouges
    └─ dbed398  implémentation et tests verts
       └─ 033a938  journal documentaire
+         └─ ea43d98  première revue architecturale
+            └─ df29507  reproduction rouge du garde dry empoisonné
+               └─ 43bb690  correctif scaler borné
+                  └─ 33c8bab  journal du correctif
 ```
 
 Le diff `cc5da0e..033a938` contient 17 fichiers, 1 676 ajouts et 314
@@ -192,6 +202,77 @@ temporaire et sont tous tués, exit 1, sur les deux pins :
 | recherche linéaire | compteur 4 096 candidats sous borne logarithmique |
 
 Les probes temporaires sont absents de la branche auditée.
+
+## Revalidation du correctif scaler
+
+La seconde passe a relu intégralement les quatre fichiers touchés par
+`df29507`, `43bb690` et `33c8bab` : les deux sources render/layout, le test
+render object et le journal du lot. Le diff `033a938..33c8bab` des deux fichiers
+de surface publique, `lib/auto_size_text.dart` et `lib/src/auto_size_text.dart`,
+est vide : le wrapper, le helper et les callbacks ajoutés sont tous privés dans
+les `part` existants. Aucun import Flutter privé, assertion de constructeur ou
+contrat public n'est modifié.
+
+### Portée de la capture
+
+`_scaleUserFontSize` n'est appelé qu'aux deux points qui délèguent réellement
+au scaler fourni par l'utilisateur : `source.scale` dans le scaler candidat et
+`scaler.scale` dans le calcul de taille effective. Son `try` contient cet appel,
+la validation finie/non négative de sa sortie et sa canonicalisation de zéro ;
+ces deux dernières opérations sont déterministes, n'appellent ni l'utilisateur
+ni Flutter et ne peuvent produire que l'`ArgumentError` déjà prévu pour une
+sortie invalide. La validation des entrées, la recherche, la création/layout du
+painter et la construction du paragraphe restent hors de cette capture.
+
+Le helper render `_recoverUserScalerFailure` ne capture ensuite que
+`_AutoSizeTextUserScalerFailure`, jamais `Object` ou `Error`. Le témoin
+`TextSpan.build` fautif traverse encore avec l'objet original ; aucune
+`AssertionError`, `FlutterError`, `UnsupportedError` ou erreur interne de
+paragraphe hors scaler n'est masquée. Les `finally` qui disposent les painters
+restent sur les mêmes chemins.
+
+### Fallbacks et wet layout
+
+Les six retours d'erreur sont adaptés à leur protocole et sans effet de bord :
+
+- dry layout retourne `constraints.constrain(Size.zero)`, donc la plus petite
+  taille admise par les contraintes reçues ;
+- dry baseline retourne `null`, le signal public d'absence de baseline ;
+- les quatre intrinsics retournent `0.0`.
+
+Ils ne lisent ou ne démontent pas le child, ne consultent pas la replacement et
+ne publient rien au groupe. L'erreur et la stack originales sont transmises à
+`FlutterError.reportError`, puis une configuration valide redonne les six
+métriques normales sur la même instance de render object.
+
+En wet, l'extraction de `_reportWetLayoutFailure` conserve la séquence
+antérieure : nettoyage du child via le callback de layout, taille
+`constraints.smallest`, même contexte de rapport et retour immédiat. Le wrapper
+scaler est seulement déballé pour restituer l'objet et la stack utilisateur ;
+le catch général historique traite toujours, sans changement, toute autre
+erreur de sélection.
+
+### Matrice corrective indépendante
+
+La revalidation a été exécutée sur `33c8bab` avec les mêmes révisions exactes
+Flutter/Dart que la matrice initiale. Flutter 3.41.0 a tourné dans une copie
+temporaire résolue par son propre SDK ; le worktree de revue et son lock exemple
+sont restés inchangés.
+
+| Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
+| --- | ---: | ---: |
+| Render/intrinsics/config/lifecycle ciblés | 36/36 | 36/36 |
+| Scaler ciblé | 11/11 | 11/11 |
+| Suite complète naturelle | 143/143 | 143/143 |
+| Leak natif | vert dans la suite complète | vert dans la suite complète |
+| Analyse fatale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+| Analyse fatale séparée dans `example/` | aucun diagnostic | aucun diagnostic |
+| Format Dart canonique | sans objet | 31 fichiers, 0 changement |
+
+`git diff --check` est propre. Aucun probe, mutant ou changement produit n'a
+été ajouté par cette revalidation. Le correctif ferme le finding lifecycle sans
+réouvrir les garanties d'architecture établies plus haut ; le verdict reste
+**ACCEPTÉ**.
 
 ## Checklist fonctionnelle et safety
 
