@@ -251,7 +251,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
   void didUpdateWidget(AutoSizeText oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.group != widget.group) {
+    if (!identical(oldWidget.group, widget.group)) {
       oldWidget.group?._remove(this);
       widget.group?._register(this);
       _publishedEffectiveFontSize = null;
