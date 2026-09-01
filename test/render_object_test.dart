@@ -10,6 +10,7 @@ void main() {
       'should never build or query overflowReplacement from dry paths',
       (tester) async {
         final autoKey = GlobalKey();
+        final textKey = GlobalKey();
         final replacementKey = GlobalKey();
         late StateSetter setHostState;
         var width = 300.0;
@@ -27,6 +28,7 @@ void main() {
                     child: AutoSizeText(
                       'MMMMMMMMMM',
                       key: autoKey,
+                      textKey: textKey,
                       style: const TextStyle(fontSize: 20),
                       minFontSize: 10,
                       maxFontSize: 20,
@@ -67,6 +69,7 @@ void main() {
         setHostState(() => width = 40);
         await tester.pump();
         expect(find.byKey(replacementKey), findsOneWidget);
+        expect(find.byKey(textKey), findsNothing);
         expect(replacementBuilds, 1);
         final buildsAfterWet = replacementBuilds;
 
@@ -163,10 +166,10 @@ void main() {
       'should preserve recognizers semantics and SelectionArea delegation',
       (tester) async {
         var taps = 0;
+        final textKey = GlobalKey();
         final recognizer = TapGestureRecognizer()..onTap = () => taps += 1;
         addTearDown(recognizer.dispose);
         final semantics = tester.ensureSemantics();
-        addTearDown(semantics.dispose);
 
         await tester.pumpWidget(
           _host(
@@ -179,6 +182,7 @@ void main() {
                   ],
                 ),
                 semanticsLabel: 'Selectable action label',
+                textKey: textKey,
                 style: const TextStyle(fontSize: 20),
               ),
             ),
@@ -186,14 +190,22 @@ void main() {
         );
 
         expect(
-          tester.getSemantics(find.byType(AutoSizeText)),
-          matchesSemantics(label: 'Selectable action label'),
+          find.bySemanticsLabel('Selectable action label'),
+          findsOneWidget,
         );
-        final paragraph = find.byType(RichText);
-        await tester.tapAt(tester.getCenter(paragraph));
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byKey(textKey),
+        );
+        final actionBox = paragraph
+            .getBoxesForSelection(
+              const TextSelection(baseOffset: 11, extentOffset: 17),
+            )
+            .single;
+        await tester.tapAt(paragraph.localToGlobal(actionBox.toRect().center));
         await tester.pump();
-        expect(taps, anyOf(0, 1));
+        expect(taps, 1);
         expect(tester.takeException(), isNull);
+        semantics.dispose();
       },
     );
 
@@ -231,7 +243,7 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       final first = tester.renderObject<RenderBox>(find.byKey(firstKey));
       final second = tester.renderObject<RenderBox>(find.byKey(secondKey));
@@ -245,6 +257,8 @@ void main() {
         second.getDryLayout(constraints),
       ];
       expect(repeated, before);
+      await tester.idle();
+      expect(tester.binding.hasScheduledFrame, isFalse);
       await tester.pump();
       expect(first.getDryLayout(constraints), first.getDryLayout(constraints));
       expect(tester.takeException(), isNull);

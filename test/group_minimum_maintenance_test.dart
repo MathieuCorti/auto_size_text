@@ -1,5 +1,6 @@
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _groupHost(AutoSizeGroup group, List<MapEntry<String, int>> reports) {
@@ -39,12 +40,10 @@ void _expectSizes(
   List<double> expected,
 ) {
   final actual = reports.map((entry) {
-    final text = tester.widget<Text>(
+    final paragraph = tester.renderObject<RenderParagraph>(
       find.byKey(ValueKey<String>('text-${entry.key}')),
     );
-    return (text.textScaler ?? TextScaler.noScaling).scale(
-      text.style!.fontSize!,
-    );
+    return paragraph.textScaler.scale(paragraph.text.style!.fontSize!);
   });
   expect(actual, orderedEquals(expected));
 }

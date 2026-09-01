@@ -7,6 +7,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'utils.dart';
+
 const _localeFixtureFamily = 'AutoSizeTextMetricNaskh';
 const _robotoFixtureFamily = 'AutoSizeTextMetricRoboto';
 
@@ -455,7 +457,7 @@ void main() {
         expect(paragraph.text.style!.height, 1.5);
         expect(paragraph.text.style!.letterSpacing, 7);
         expect(paragraph.text.style!.wordSpacing, 11);
-        final sourceText = tester.widget<Text>(find.byKey(textKey));
+        final sourceText = textWidgetForKey(tester, textKey);
         expect(sourceText.style!.height, 3);
         expect(sourceText.style!.letterSpacing, 2);
         expect(sourceText.style!.wordSpacing, 4);
@@ -621,7 +623,7 @@ void main() {
         );
         expect(find.byKey(replacementKey), findsNothing);
         expect(paragraph.strutStyle!.height, 0.5);
-        expect(tester.widget<Text>(find.byKey(textKey)).strutStyle!.height, 1);
+        expect(textWidgetForKey(tester, textKey).strutStyle!.height, 1);
         _expectPainterMatchesRenderParagraph(
           paragraph,
           referenceFontSize: 20,

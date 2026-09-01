@@ -131,6 +131,40 @@ void main() {
       expect(tester.takeException(), isA<StateError>());
     }, experimentalLeakTesting: nativeResourceLeakTesting);
 
+    testWidgets('should dispose painters used by every dry query', (
+      tester,
+    ) async {
+      final key = GlobalKey();
+      await pump(
+        tester: tester,
+        widget: AutoSizeText.rich(
+          const TextSpan(
+            children: <InlineSpan>[
+              TextSpan(text: 'dry '),
+              TextSpan(text: 'resources'),
+            ],
+          ),
+          key: key,
+          style: const TextStyle(fontSize: 24),
+          minFontSize: 8,
+          maxLines: 1,
+          wrapWords: false,
+        ),
+      );
+
+      final render = tester.renderObject<RenderBox>(find.byKey(key));
+      const constraints = BoxConstraints(maxWidth: 80, maxHeight: 40);
+      expect(render.getDryLayout(constraints), isNot(Size.zero));
+      expect(
+        render.getDryBaseline(constraints, TextBaseline.ideographic),
+        isNotNull,
+      );
+      expect(render.getMinIntrinsicWidth(40), greaterThan(0));
+      expect(render.getMaxIntrinsicWidth(40), greaterThan(0));
+      expect(render.getMinIntrinsicHeight(80), greaterThan(0));
+      expect(render.getMaxIntrinsicHeight(80), greaterThan(0));
+    }, experimentalLeakTesting: nativeResourceLeakTesting);
+
     testWidgets('should dispose painters across repeated rebuilds', (
       tester,
     ) async {

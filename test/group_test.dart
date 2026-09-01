@@ -68,6 +68,11 @@ void _expectFontSizes(WidgetTester tester, double fontSize) {
   }
 }
 
+Future<void> _pumpGroupConvergence(WidgetTester tester) async {
+  await tester.pump(Duration.zero);
+  await tester.pump(Duration.zero);
+}
+
 void main() {
   group('AutoSizeGroup', () {
     testWidgets('should synchronize font sizes after state updates', (
@@ -81,45 +86,44 @@ void main() {
 
       state.width1 = 200;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 33);
 
       state.width2 = 150;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 25);
 
       state.width2 = 100;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 16);
 
       state.width1 = 60;
       state.width2 = 60;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 10);
 
       state.width1 = 200;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 10);
 
       state.width2 = 250;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 33);
 
       state.width1 = 250;
       state.refresh();
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 41);
 
       state.width1 = 300;
       state.width2 = 300;
       state.refresh();
-      await tester.pump(Duration.zero);
-      await tester.pump(Duration.zero);
+      await _pumpGroupConvergence(tester);
       _expectFontSizes(tester, 50);
 
       await tester.pump(Duration.zero);

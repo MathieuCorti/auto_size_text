@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'utils.dart';
+
 final class _OracleTextScaler extends TextScaler {
   const _OracleTextScaler();
 
@@ -229,7 +231,7 @@ void main() {
         );
 
         expect(_rootSize(paragraph), 10);
-        final text = tester.widget<Text>(find.byKey(textKey));
+        final text = textWidgetForKey(tester, textKey);
         expect(identical(text.textSpan, source), isTrue);
         expect(text.style, const TextStyle(fontFamily: 'Ahem', fontSize: 20));
         final renderedSource =
@@ -500,7 +502,7 @@ void main() {
         ),
       );
 
-      expect(tester.widget<Text>(find.byKey(textKey)), isA<Text>());
+      expect(textWidgetForKey(tester, textKey), isA<Text>());
       expect(paragraph.text.style!.fontSize, 10);
       expect(
         identical(paragraph.textScaler, const _OracleTextScaler()),
@@ -531,7 +533,7 @@ void main() {
             ),
           ),
         );
-        expect(tester.widget<Text>(find.byKey(simpleKey)), isA<Text>());
+        expect(textWidgetForKey(tester, simpleKey), isA<Text>());
         expect(paragraph.text.style!.fontSize, 0);
         expect(_rootSize(paragraph), 0);
         expect(paragraph.textSize.isFinite, isTrue);
@@ -556,7 +558,7 @@ void main() {
             ),
           ),
         );
-        expect(tester.widget<Text>(find.byKey(richKey)), isA<Text>());
+        expect(textWidgetForKey(tester, richKey), isA<Text>());
         expect(paragraph.text.style!.fontSize, 0);
         expect(_rootSize(paragraph), 0);
         expect(_selectionWidth(paragraph, 0, 1), 0);

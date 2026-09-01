@@ -3,6 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+final class _ScaleCounter {
+  int calls = 0;
+}
+
+final class _CountingIdentityTextScaler extends TextScaler {
+  const _CountingIdentityTextScaler(this.counter);
+
+  final _ScaleCounter counter;
+
+  @override
+  double scale(double fontSize) {
+    counter.calls += 1;
+    return fontSize;
+  }
+
+  @override
+  double get textScaleFactor => 1;
+}
+
 void main() {
   group('AutoSizeText intrinsics', () {
     testWidgets('should support IntrinsicWidth (#28)', (tester) async {
@@ -208,6 +227,13 @@ void main() {
             epsilon: 0.001,
           ),
         );
+        expect(
+          auto.getDryBaseline(dryConstraints, TextBaseline.ideographic),
+          moreOrLessEquals(
+            witness.getDryBaseline(dryConstraints, TextBaseline.ideographic)!,
+            epsilon: 0.001,
+          ),
+        );
         expect(auto.getMinIntrinsicWidth(80), witness.getMinIntrinsicWidth(80));
         expect(auto.getMaxIntrinsicWidth(80), witness.getMaxIntrinsicWidth(80));
         expect(
@@ -220,6 +246,121 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'should use the minimum paragraph metrics when no candidate fits',
+      (tester) async {
+        final autoKey = GlobalKey();
+        final textKey = GlobalKey();
+        final witnessKey = GlobalKey();
+        const tight = BoxConstraints.tightFor(width: 5, height: 8);
+
+        await tester.pumpWidget(
+          _host(
+            Column(
+              children: <Widget>[
+                ConstrainedBox(
+                  constraints: tight,
+                  child: AutoSizeText(
+                    'MMMM',
+                    key: autoKey,
+                    textKey: textKey,
+                    style: const TextStyle(fontSize: 20),
+                    minFontSize: 10,
+                    maxFontSize: 20,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
+                ),
+                ConstrainedBox(
+                  constraints: tight,
+                  child: Text(
+                    'MMMM',
+                    key: witnessKey,
+                    style: const TextStyle(fontSize: 10),
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        final auto = tester.renderObject<RenderBox>(find.byKey(autoKey));
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byKey(textKey),
+        );
+        final witness = tester.renderObject<RenderParagraph>(
+          find.byKey(witnessKey),
+        );
+        expect(paragraph.textScaler.scale(20), 10);
+        expect(auto.size, witness.size);
+        expect(auto.getDryLayout(tight), witness.getDryLayout(tight));
+        for (final baseline in TextBaseline.values) {
+          expect(
+            auto.getDryBaseline(tight, baseline),
+            moreOrLessEquals(
+              witness.getDryBaseline(tight, baseline)!,
+              epsilon: 0.001,
+            ),
+          );
+        }
+      },
+    );
+
+    testWidgets('should keep simple and rich dry search logarithmic', (
+      tester,
+    ) async {
+      final simpleKey = GlobalKey();
+      final richKey = GlobalKey();
+      final simpleCounter = _ScaleCounter();
+      final richCounter = _ScaleCounter();
+
+      await tester.pumpWidget(
+        _host(
+          Column(
+            children: <Widget>[
+              AutoSizeText(
+                'MMMM',
+                key: simpleKey,
+                style: const TextStyle(fontSize: 1000000),
+                minFontSize: 1,
+                stepGranularity: 0.1,
+                maxLines: 1,
+                textScaler: _CountingIdentityTextScaler(simpleCounter),
+              ),
+              AutoSizeText.rich(
+                const TextSpan(
+                  children: <InlineSpan>[
+                    TextSpan(text: 'MM'),
+                    TextSpan(
+                      text: 'MM',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                key: richKey,
+                style: const TextStyle(fontSize: 1000000),
+                minFontSize: 1,
+                stepGranularity: 0.1,
+                maxLines: 1,
+                textScaler: _CountingIdentityTextScaler(richCounter),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      simpleCounter.calls = 0;
+      richCounter.calls = 0;
+      const dry = BoxConstraints.tightFor(width: 1, height: 1);
+      tester.renderObject<RenderBox>(find.byKey(simpleKey)).getDryLayout(dry);
+      tester.renderObject<RenderBox>(find.byKey(richKey)).getDryLayout(dry);
+
+      expect(simpleCounter.calls, inInclusiveRange(1, 120));
+      expect(richCounter.calls, inInclusiveRange(1, 200));
+    });
 
     testWidgets(
       'should keep repeated dry metrics finite with infinite axes and minima',
