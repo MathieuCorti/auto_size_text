@@ -45,11 +45,11 @@ final class _CappedTextScaler extends TextScaler {
   double get textScaleFactor => 99;
 }
 
-final class _ZeroTextScaler extends TextScaler {
-  const _ZeroTextScaler();
+final class _ZeroRootPlateauTextScaler extends TextScaler {
+  const _ZeroRootPlateauTextScaler();
 
   @override
-  double scale(double fontSize) => 0;
+  double scale(double fontSize) => fontSize <= 30 ? 0 : fontSize - 30;
 
   @override
   double get textScaleFactor => 99;
@@ -452,24 +452,33 @@ void main() {
       },
     );
 
-    testWidgets('should preserve the local candidate on a zero plateau', (
+    testWidgets('should keep the local rich candidate on a zero-root plateau', (
       tester,
     ) async {
       final group = AutoSizeGroup();
       const groupedKey = ValueKey<String>('zero-plateau-grouped');
       const standaloneKey = ValueKey<String>('zero-plateau-standalone');
-      const source = TextSpan(text: 'A', style: TextStyle(fontSize: 10));
+      const source = TextSpan(
+        text: 'A',
+        style: TextStyle(fontFamily: 'Ahem', fontSize: 100),
+      );
 
       await _pumpGroup(
         tester,
         _host(<Widget>[
-          AutoSizeText.rich(
-            source,
-            textKey: groupedKey,
-            style: const TextStyle(fontFamily: 'Ahem', fontSize: 20),
-            presetFontSizes: const <double>[30, 20, 10],
-            textScaler: const _ZeroTextScaler(),
-            group: group,
+          SizedBox(
+            width: 95,
+            height: 150,
+            child: AutoSizeText.rich(
+              source,
+              textKey: groupedKey,
+              style: const TextStyle(fontSize: 20),
+              presetFontSizes: const <double>[30, 20, 10],
+              textScaler: const _ZeroRootPlateauTextScaler(),
+              maxLines: 1,
+              softWrap: false,
+              group: group,
+            ),
           ),
           AutoSizeText(
             '',
@@ -478,22 +487,29 @@ void main() {
             textScaler: TextScaler.noScaling,
             group: group,
           ),
-          AutoSizeText.rich(
-            source,
-            textKey: standaloneKey,
-            style: const TextStyle(fontFamily: 'Ahem', fontSize: 20),
-            presetFontSizes: const <double>[30, 20, 10],
-            textScaler: const _ZeroTextScaler(),
+          SizedBox(
+            width: 95,
+            height: 150,
+            child: AutoSizeText.rich(
+              source,
+              textKey: standaloneKey,
+              style: const TextStyle(fontSize: 20),
+              presetFontSizes: const <double>[30, 20, 10],
+              textScaler: const _ZeroRootPlateauTextScaler(),
+              maxLines: 1,
+              softWrap: false,
+            ),
           ),
         ]),
       );
 
-      final grouped = _text(tester, groupedKey);
-      final standalone = _text(tester, standaloneKey);
-      expect(grouped.textScaler, standalone.textScaler);
+      expect(_effectiveSize(tester, groupedKey), 0);
+      expect(_effectiveSize(tester, standaloneKey), 0);
+      expect(_selectionWidth(_paragraph(tester, standaloneKey), 0, 1), 70);
+      expect(_selectionWidth(_paragraph(tester, groupedKey), 0, 1), 70);
 
       await tester.pump();
-      expect(_text(tester, groupedKey).textScaler, standalone.textScaler);
+      expect(_selectionWidth(_paragraph(tester, groupedKey), 0, 1), 70);
       expect(tester.binding.hasScheduledFrame, isFalse);
     });
 
