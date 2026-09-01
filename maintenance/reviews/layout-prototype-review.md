@@ -1,268 +1,264 @@
-# Revue indépendante du prototype layout — lot 8
+# Revalidation indépendante du prototype layout — lot 8
 
-## Verdict
+## Verdict final
 
-**CHANGEMENTS REQUIS sur la note.** Le **NO-GO du contrat actuel est confirmé**
-et les lots 9 et 10 doivent rester suspendus. En revanche, la note ne satisfait
-pas encore entièrement son propre contrat de reproductibilité : le commit
-historique permet de rejouer les 17 tests et les mutants, mais pas le probe lazy
-chiffré qui porte la preuve décisive, ni plusieurs probes secondaires présentés
-comme exécutés sur les deux SDK.
+**NOTE ACCEPTÉE.** Le second spike ferme les P1/P2/P3 de la première revue et
+rend le dossier NO-GO reproductible sur Flutter 3.41.0 et 3.47.2. Aucun finding
+P0 à P3 ne reste ouvert sur la note.
 
-Il n'y a aucun P0. Un P1 documentaire bloque l'acceptation formelle de la note,
-sans remettre en cause le NO-GO architectural. Les P2/P3 demandent de borner les
-claims à ce que le spike conservé prouve réellement.
+Le **NO-GO du contrat actuel est confirmé** : les lots 9 et 10 restent
+suspendus, aucun `S7` n'est créé et aucun finding layout n'est fermé. Ce verdict
+porte sur le cumul actuel « replacement arbitraire inactive non montée + mesure
+dry/intrinsic exacte avant wet + aucun mesureur fourni ». Il n'interdit pas un
+contrat futur plus simple qui préserverait le montage lazy et fournirait un
+fallback dry sûr, borné et documenté plutôt qu'une exactitude impossible. Ce
+choix relève du mainteneur et d'une révision explicite du roadmap, pas de cette
+revalidation.
 
-Périmètre contrôlé :
+## Périmètre et provenance
 
-- base Gate Cœur `aac54f3eac23aa7c47a5439baf179f9394588aaa` ;
-- spike historique `dba563961a66ca09d40f471e3a72e5649752602f` ;
-- tip audité `ea5b52df8f15a364dec5fcd243d5931d00ffb959` ;
-- Flutter 3.41.0 / framework
-  `44a626f4f0027bc38a46dc68aed5964b05a83c18` ;
-- Flutter 3.47.2 / framework
-  `d3b14c876900e553bc736ca19295fc09e3853e8e`.
+- base Gate Cœur : `aac54f3eac23aa7c47a5439baf179f9394588aaa` ;
+- première archive : `dba563961a66ca09d40f471e3a72e5649752602f` ;
+- première note : `ea5b52df8f15a364dec5fcd243d5931d00ffb959` ;
+- première revue : `92b83e6b985c2a7878b87e89c40fb1a260abe38f` ;
+- archive source complète du spike2 :
+  `06169f7ec5cd1d7ed99428b0144fd02508f94633` ;
+- cherry-pick local de cette preuve : `b39d28e` ;
+- note finale auditée : `41a6e21`.
 
-## Findings
+Les quatre fichiers de preuve de `06169f7` et `b39d28e` sont byte-identiques.
+Le cherry-pick ajoute le rapport antérieur à son arbre parce qu'il se trouve sur
+la branche de revue, mais ne modifie aucun des quatre artefacts du spike2.
 
-### P1 — Le probe lazy décisif n'est pas reproductible depuis le commit annoncé
+| Fichier historique | Lignes | SHA-256 |
+| --- | ---: | --- |
+| `tool/layout_spike/spike.dart` | 1 136 | `2f49d3101031e1a52e607d72fcc32a42b5a68991a5d0463ad412448c3d077d35` |
+| `tool/layout_spike/evidence.dart` | 456 | `13860dbb9f9625b05c8bc5908870dbab826a27b3649d0e15e7fbbb91025f9419` |
+| `test/layout_spike_gate_test.dart` | 745 | `da456f7e8c988e8bfb85fec97717d68a21cecc275c603d23a2cd04746624eb0a` |
+| `test/layout_spike_evidence_test.dart` | 517 | `ae7ba0990a2378c4ba5e9e9ca1781ed991cf876c9d607d8243a6305289794c79` |
 
-**Fichiers :** `maintenance/layout-prototype-decision.md:20-28,186-209`,
-`dba5639:test/layout_spike_gate_test.dart:624-647`,
-`dba5639:tool/layout_spike/spike.dart:186-236`.
+Les **2 854 lignes** ont été inspectées. Les fichiers sont absents du tip,
+conformément au caractère jetable du lot 8 ; aucun code produit n'est conservé.
 
-La note désigne `dba5639` comme « commit temporaire complet du spike », puis
-rapporte un probe dans lequel un dry sous `maxWidth: 50` rend `50 × 70`, le wet
-rend `30 × 40`, et la trace fit → overflow → fit initialise puis dispose la
-replacement. Aucun code conservé à ce SHA ne produit cette trace :
+## Fermeture des findings initiaux
 
-- le seul test lazy monte un `LayoutBuilder` et vérifie uniquement que
-  `getDryLayout` lève un `FlutterError` ;
-- `SpikeEagerReplacement` est un témoin `Stack`/`Offstage` piloté manuellement,
-  sans fitter, sélection par contraintes, appel dry ou comparaison dry/wet ;
-- aucun test ne relie le cycle de vie eager/lazy au choix de candidat du render
-  object.
+### P1 — Blocker lazy et lifecycle : fermé
 
-Le raisonnement de fond est néanmoins correct. Sur les deux pins,
-`_RenderLayoutBuilder.computeDryLayout` appelle
-`debugCannotComputeDryLayout`, précisément parce qu'exécuter le callback
-spéculativement muterait l'arbre vivant. `RenderBox.getDryLayout` exige une
-taille égale au wet à état identique et un calcul sans effet de bord ; une
-branche non montée ne fournit aucun `RenderBox` à interroger. Le blocker est
-donc réel, mais les valeurs et la trace publiées ne sont pas rejouables à partir
-de l'artefact cité.
+Le commit de preuve contient maintenant un vrai
+`ConstrainedLayoutBuilder`/render object lazy. Son wet peut reconstruire la
+branche sous `invokeLayoutCallback`; son dry ne peut interroger que la branche
+déjà montée.
 
-**Correction requise :** soit conserver le probe lazy et son test dans un
-nouveau commit historique jetable, avec exécution sur les deux pins, puis le
-retirer au tip ; soit retirer les valeurs `50 × 70`/`30 × 40`, la trace de
-lifecycle et le mot « démontrée » pour présenter honnêtement une preuve fondée
-sur l'invariant Flutter et le test `LayoutBuilder` conservé. La première option
-est préférable pour le prochain lot 8.
+Le test archive la séquence complète :
 
-### P2 — L'eager mount ne garantit pas un dry exact pour des widgets arbitraires
+| Étape | Contrainte | Résultat | Lifecycle |
+| --- | ---: | ---: | --- |
+| wet fit | 150 | texte `120 × 70` | `text.init = 1` |
+| dry overflow | 50 | texte historique `50 × 70` | inchangé |
+| wet overflow | 50 | replacement `30 × 40` | texte disposé, replacement initialisée |
+| wet fit | 150 | texte `120 × 70` | replacement disposée, nouveau texte initialisé |
 
-**Fichiers :** `maintenance/layout-prototype-decision.md:203-218`,
-`dba5639:test/layout_spike_gate_test.dart:280-328`.
+Le dry et le wet rendent donc bien des tailles différentes sous les mêmes
+contraintes quand seule la branche active historique est disponible. Les
+compteurs de wet/dry layout, `initState`/`dispose`, sémantique, hit testing et
+taps rendent la preuve discriminante. Le test démonte ensuite l'arbre et
+vérifie les disposals finaux.
 
-La première voie de déblocage affirme conserver « un dry exact pour des widgets
-arbitraires ». L'eager mount ne résout que la disponibilité du render subtree.
-Il ne donne pas un contrat dry à un widget qui n'en possède pas. Le spike le
-démontre lui-même : un child monté `SpikeWetOnlyBox` fonctionne en wet et ses
-largeurs intrinsèques sont accessibles, mais la première demande de dry lève.
-Une replacement contenant un `LayoutBuilder` présente la même limite.
+Le blocker n'est plus une simple déduction documentaire : il est archivé,
+rejouable et identique sur les deux pins.
 
-**Correction requise :** remplacer ce claim par « widgets arbitraires dont le
-render subtree respecte le contrat dry demandé », puis définir le comportement
-pour une replacement wet-only, de la même façon que pour un child inline
-wet-only. L'eager mount reste l'unique voie identifiée pour rendre disponible
-une branche inactive *dry-capable* ; il ne rend pas tous les widgets dry-capable.
+### P2 — Portée de l'eager mount : fermé
 
-### P2 — La séparation des APIs intrinsèques est prouvée, pas l'exactitude des quatre résultats
+La note ne promet plus un dry exact pour tout widget arbitraire. Deux
+contre-exemples montent puis activent une replacement contenant respectivement :
 
-**Fichiers :** `maintenance/layout-prototype-decision.md:91-98,148-164`,
-`dba5639:tool/layout_spike/spike.dart:603-647,837-991`,
-`dba5639:test/layout_spike_gate_test.dart:280-328,587-622`.
+1. un `LayoutBuilder` ;
+2. un subtree explicitement wet-only.
 
-La lecture du code et le mutant `intrinsic_uses_dry` confirment la bonne
-frontière : les largeurs interrogent `getMinIntrinsicWidth` ou
-`getMaxIntrinsicWidth`, tandis que dry, hauteurs et baselines passent par
-`getDryLayout`/`getDryBaseline`. Cette séparation correspond aux implémentations
-de `RenderParagraph` sur 3.41.0 et 3.47.2.
+Dans les deux cas, la demande dry lève le `FlutterError` attendu. La conclusion
+est correctement bornée : eager rend le subtree disponible, mais ne lui confère
+pas une capacité dry. Cette option ne peut être exacte que si le sous-arbre
+nécessaire est entièrement dry-capable, et elle modifie le lifecycle historique.
 
-Les assertions conservées ne prouvent toutefois pas que les valeurs sont
-correctes :
+### P2 — Intrinsics exacts et APIs children distinctes : fermé
 
-- le test wet-only accepte toute largeur non négative et vérifie seulement
-  l'absence d'appel dry ;
-- le test des quatre intrinsics utilise du texte sans `WidgetSpan` et vérifie
-  seulement que les quatre valeurs sont finies et non négatives ;
-- aucun témoin `RenderParagraph` ne compare les largeurs min/max, aucun child
-  ne donne volontairement un intrinsic différent de son dry, et les contraintes
-  synthétiques ne sont pas observées.
+Un child témoin retourne volontairement trois largeurs différentes : min
+intrinsic 11, dry 23 et max intrinsic 37. Le spike est comparé à un
+`RenderParagraph` indépendant possédant un child équivalent.
 
-**Correction requise :** dans le nouveau spike exigé par la note, ajouter un
-child dont min intrinsic, max intrinsic et dry width sont distincts ; comparer
-les quatre résultats et le candidat à un `RenderParagraph` témoin sur les deux
-pins, avec largeur/hauteur finies puis infinies. À défaut, qualifier la phrase
-« noyau render viable » comme une faisabilité de frontière et non une preuve
-d'exactitude intrinsèque complète.
-
-### P3 — Plusieurs claims secondaires proviennent de la lecture du code, pas de tests discriminants conservés
-
-**Fichiers :** `maintenance/layout-prototype-decision.md:81-110,169-175`,
-`dba5639:test/layout_spike_gate_test.dart:134-220,432-528`.
-
-Le code suit bien les invariants annoncés, mais la suite conservée ne distingue
-pas tous les défauts que le texte dit avoir probés :
-
-- `zero_division` tue une division par zéro, sans prouver qu'à facteur zéro la
-  baseline du child est interrogée avant multiplication, ni distinguer baseline
-  absente, valide à zéro et erreur dry ;
-- aucun test ne reproduit le retour d'une taille dry mémoïsée après changement
-  d'un facteur externe ;
-- le témoin eager vérifie lifecycle et sémantique, pas peinture ni hit testing ;
-- le test de recognizer tape le texte, pas l'enfant inline transformé, et aucun
-  test n'observe explicitement les tags de placeholder.
-
-Ces propriétés sont plausibles et, pour plusieurs, lisibles directement dans
-le spike ou dans le wrapper Flutter équivalent. Elles ne doivent simplement pas
-être présentées comme des probes reproductibles sur les deux pins sans artefact.
-
-**Correction requise :** conserver les probes/mutants correspondants ou
-étiqueter ces points « inspection structurelle ». Indiquer aussi que
-`invokeLayoutCallback` est une API publique **protégée**, réservée aux
-sous-classes de `RenderObject`, documentée par Flutter comme généralement
-découragée. Son usage actuel depuis `_SpikeRenderFitter.performLayout` respecte
-ce contrat et ne constitue pas un recours à une API privée.
-
-## Vérification indépendante
-
-Le spike a été extrait par `git archive` dans un répertoire temporaire ; aucun
-fichier n'a été restauré au tip.
-
-Sur chacun des deux SDK exacts :
+Les quatre valeurs concordent exactement sur les deux SDK :
 
 ```text
-flutter pub get --no-example                                  succès
-dart format --output=none tool/layout_spike/spike.dart \
-  test/layout_spike_gate_test.dart                            0 fichier modifié
-flutter analyze tool/layout_spike/spike.dart \
-  test/layout_spike_gate_test.dart                            aucune issue
-flutter test test/layout_spike_gate_test.dart --reporter expanded
-                                                               17/17 verts
+minWidth=11, maxWidth=37, minHeight=20, maxHeight=20
 ```
 
-Les compteurs observés sont identiques : `C=1024`, `P=3`, 10 évaluations,
-10 layouts paragraphe et 30 layouts children ; groupe local 40, rendu 18 et un
-relayout final ; non-monotone candidat 1 en deux évaluations ; painters 4/4
-puis 5/5 après exception. Le SHA-256 de `example/pubspec.lock` reste
+Les appels avec argument infini concordent aussi. Les compteurs prouvent que
+les largeurs utilisent `getMinIntrinsicWidth`/`getMaxIntrinsicWidth`, tandis
+que les hauteurs passent par `getDryLayout`; les APIs intrinsèques de hauteur du
+child ne sont pas utilisées, comme dans `RenderParagraph`. Le mutant
+`intrinsic_uses_dry` est tué sur les deux pins.
+
+### P3 — Baseline zéro, cache, interaction inline et API protégée : fermé
+
+Les probes manquants sont désormais conservés et discriminants :
+
+- facteur zéro avec child sans dry baseline : l'erreur n'est pas masquée ;
+- facteur zéro avec baseline valide 6 : baseline et taille finales zéro ;
+- le mutant `zero_baseline_shortcut` échoue ;
+- un facteur externe changé sans invalidation laisse `getDryLayout` à
+  `12 × 8`, tandis que le helper explicite rend `24 × 16` ;
+- le mutant `explicit_dry_uses_cache` échoue ;
+- un child inline au facteur 0,5 est peint, hit-testé et reçoit le
+  `PointerDownEvent` avec la bonne transformation ;
+- le tag `PlaceholderSpanIndexSemanticsTag(0)`, le registrar de
+  `SelectionArea`, les boxes de sélection et le recognizer sont vérifiés ;
+- wrapper et paragraphe sont disposés, avec mutants dédiés à la transformation
+  et au disposal.
+
+La note qualifie maintenant correctement `invokeLayoutCallback` : nom public
+au sens Dart, mais membre **`@protected`**, réservé à une sous-classe pendant
+son wet layout et généralement déconseillé par la documentation Flutter. Deux
+probes capturent les assertions de mutation sans callback, puis le chemin
+normal démontre trois cycles configure/layout, trois layouts paragraphe et six
+layouts inline sans assertion récursive.
+
+## Matrice indépendante
+
+Le commit `b39d28e` a été extrait avec `git archive` dans un répertoire
+temporaire. Sur les deux SDK exacts :
+
+- Flutter 3.41.0, framework
+  `44a626f4f0027bc38a46dc68aed5964b05a83c18` ;
+- Flutter 3.47.2, framework
+  `d3b14c876900e553bc736ca19295fc09e3853e8e`.
+
+Commandes rejouées :
+
+```text
+flutter pub get --no-example
+dart format --output=none <les quatre fichiers du spike2>
+flutter analyze <les quatre fichiers du spike2>
+flutter test test/layout_spike_gate_test.dart \
+  test/layout_spike_evidence_test.dart --reporter expanded
+```
+
+Résultat sur chaque pin :
+
+| Contrôle | 3.41.0 | 3.47.2 |
+| --- | ---: | ---: |
+| Format | 4 fichiers, 0 changement | 4 fichiers, 0 changement |
+| Analyse | aucune issue | aucune issue |
+| Tests | 28/28 | 28/28 |
+| Lock exemple | SHA canonique | SHA canonique |
+
+Le SHA-256 final d'`example/pubspec.lock` est
 `115848ebae231fd23d59e6f2d5945b59016605d8b14fb4b7f23de2ad8916b1f7`.
 
-Mutants ciblés :
+### Mutants
 
-| Mutant | 3.41.0 | 3.47.2 | Conclusion |
-|---|---:|---:|---|
-| `linear_search` | exit 1 | exit 1 | compteur logarithmique discriminant |
-| `wet_uses_dry` | exit 1 | exit 1 | backend wet distinct |
-| `dry_publish` | exit 1 | exit 1 | pureté groupe discriminante |
-| `skip_final_layout` | exit 1 | exit 1 | état final du paragraphe discriminant |
-| `zero_division` | exit 1 | exit 1 | garde de taille de run zéro discriminante |
-| `no_dispose` | exit 1 | exit 1 | disposal temporaire discriminant |
-| `intrinsic_uses_dry` | non revendiqué | exit 1 | largeur intrinsèque distincte du dry |
+Les 11 mutants ont été exécutés séparément avec les deux fichiers de test et
+leur `--plain-name` ciblé. Chacun retourne exit 1 sur les deux SDK :
 
-## Revue de l'architecture du spike
+| Mutant | 3.41.0 | 3.47.2 |
+| --- | ---: | ---: |
+| `linear_search` | tué | tué |
+| `wet_uses_dry` | tué | tué |
+| `dry_publish` | tué | tué |
+| `skip_final_layout` | tué | tué |
+| `zero_division` | tué | tué |
+| `no_dispose` | tué | tué |
+| `intrinsic_uses_dry` | tué | tué |
+| `zero_baseline_shortcut` | tué | tué |
+| `explicit_dry_uses_cache` | tué | tué |
+| `no_inline_transform` | tué | tué |
+| `no_wrapper_dispose` | tué | tué |
 
-Les points suivants sont confirmés par exécution et lecture intégrale des deux
-fichiers historiques :
+Les compteurs hérités restent identiques : `C=1024`, `P=3`, 10 évaluations,
+10 layouts paragraphe et 30 layouts children ; groupe local 40/rendu 18 avec
+un relayout final et zéro publication dry ; non-monotone candidat sûr 1 en deux
+évaluations ; painters 4/4 puis 5/5 après exception.
 
-- le parent render configure le `RenderParagraph` et les wrappers sous
-  `invokeLayoutCallback`, puis laisse tous les descendants dans le dernier état
-  réellement rendu ; le relayout de projection groupe est protégé par mutant ;
-- le chemin dry ne modifie ni le paragraphe ni les wrappers, ne publie pas au
-  groupe, et libère le `TextPainter` temporaire dans un `finally` ;
-- le wrapper inline est une duplication bornée de protocole de transformation,
-  sans painter, logique de sélection ou sémantique de paragraphe copiés ;
-- `WidgetSpan.extractFromInlineSpan` ne peut pas être réutilisé tel quel parce
-  que son `_RenderScaledInlineWidget` est privé et reçoit un facteur fixé lors
-  du build ; la réimplémentation du petit wrapper depuis des APIs publiques est
-  donc justifiée ;
-- le wet child sans dry est bien supporté jusqu'à ce qu'un ancêtre demande une
-  opération sèche ;
-- le snapshot groupe est une valeur immuable, dry ne publie rien et wet publie
-  une fois après l'état final ;
-- la recherche est logarithmique sur le cas monotone. Le cas non monotone est
-  borné, déterministe et rend un candidat effectivement testé dans la fixture,
-  sans prétendre trouver le meilleur candidat global ;
-- la réutilisation de `RenderParagraph` conserve le registrar de sélection, les
-  boxes de texte, un recognizer et la sémantique d'un child inline dans les cas
-  exercés.
+## Revalidation de l'architecture
 
-La surface commune compilée est réelle. La seule différence de constructeur
-observée dans le périmètre est `devicePixelRatio`, ajouté à `RenderParagraph`
-sur 3.47.2 et volontairement omis par le spike. Les wrappers Flutter internes
-restent privés sur les deux pins ; aucun nom privé n'est importé par le spike.
+La composition hors replacement reste crédible et minimale :
 
-## Confirmation du NO-GO et conformité au roadmap
+```text
+RenderBox fitter
+└─ petit sous-type de RenderParagraph
+   └─ wrappers inline par run
+```
 
-Le roadmap du lot 9 exige à la fois :
+- Wet configure paragraphe et wrappers dans la fenêtre protégée, wet-layoutte
+  chaque candidat et laisse le candidat final effectivement rendu.
+- Dry ne mute ni render object, ni groupe, ni cache de facteur ; les painters
+  temporaires sont libérés en `finally`.
+- Les backends intrinsic width, dry/height et wet child restent distincts ; un
+  child wet-only fonctionne jusqu'à une demande dry réelle.
+- Le wrapper duplique une petite frontière de transformation depuis des APIs
+  publiques, pas le painter, la sélection ou la sémantique de
+  `RenderParagraph`.
+- Le coût monotone observé est `O(log C)` pour le paragraphe et
+  `O(P log C)` pour les placeholders. Le non-monotone reste borné,
+  déterministe et sûr sans promesse d'optimum global.
+- Groupe, baseline, scaling par run, référence zéro, paint, hit test,
+  sémantique, sélection et ressources disposent maintenant d'une preuve
+  exécutable proportionnée au rôle de prototype.
 
-1. la même branche et la même taille en dry/wet à contraintes et snapshot
-   identiques ;
-2. une replacement inactive non montée ;
-3. aucun build, montage ou effet de lifecycle depuis dry/intrinsics.
+Aucun type privé Flutter n'est importé. `WidgetSpan.extractFromInlineSpan`
+reste inutilisable tel quel parce que ses wrappers privés figent le facteur au
+build. La note borne honnêtement cette duplication et sépare les résultats de
+tests des observations de source.
 
-Quand le texte actuellement monté tient sous les contraintes wet précédentes
-mais qu'une nouvelle requête sèche devrait choisir la replacement, ces trois
-exigences ne peuvent pas être satisfaites simultanément : la replacement n'a
-pas de render subtree mesurable et le seul moment autorisé pour reconstruire
-est une passe wet via callback de layout. Un cache de branche active donnerait
-une estimation dépendante d'un wet antérieur, pas la taille promise par
-`getDryLayout`.
+## Confirmation du NO-GO, sans sur-spécifier la suite
 
-Le NO-GO suit donc littéralement C4 de la revue de roadmap : aucun `S7`, aucune
-branche de lot 9/10, aucune fermeture des findings layout, et nouveau design
-soumis à une nouvelle note et une nouvelle revue. Accepter l'eager mount sans
-décision explicite violerait le lifecycle historique ; accepter un measurer ou
-une garantie dry réduite modifierait l'API ou les compositions supportées.
+Le test lazy confirme qu'on ne peut pas obtenir une mesure exacte d'une branche
+non montée avant le wet sans mesureur indépendant. Un eager mount ne résout pas
+les descendants wet-only et change le lifecycle. Le NO-GO suit donc le contrat
+et C4 du roadmap : nouveau choix explicite, nouvelle note et nouvelle revue
+avant les lots 9/10.
 
-## Inventaire et checklist de revue
+Cette conclusion ne transforme pas l'exactitude universelle en objectif
+permanent. Si le produit privilégie une amélioration robuste de l'amont et
+l'absence de crash, le mainteneur peut choisir de conserver lazy et définir un
+fallback dry sûr/documenté pour une replacement non mesurable. Cette voie devra
+simplement remplacer explicitement l'exigence d'égalité dry/wet du contrat
+actuel ; elle n'a pas à satisfaire les preuves d'une architecture que le
+produit ne choisit plus.
+
+## Inventaire et checklist finale
 
 Lus intégralement :
 
-- `maintenance/layout-prototype-decision.md` au tip ;
-- `tool/layout_spike/spike.dart` au commit `dba5639` (1 064 lignes) ;
-- `test/layout_spike_gate_test.dart` au commit `dba5639` (745 lignes).
+- `maintenance/layout-prototype-decision.md` au commit `41a6e21` ;
+- les 1 136 lignes de `tool/layout_spike/spike.dart` au commit de preuve ;
+- les 456 lignes de `tool/layout_spike/evidence.dart` ;
+- les 745 lignes de `test/layout_spike_gate_test.dart` ;
+- les 517 lignes de `test/layout_spike_evidence_test.dart`.
 
-Ont aussi été contrôlés : les sections lots 8 à 10 et gates de
-`maintenance/implementation-roadmap.md`, C4/C5 et les gates de
-`maintenance/reviews/implementation-roadmap-review.md`, les contrats pertinents
-de `maintenance/reviews/layout-plan-review.md` et
-`maintenance/plans/layout-architecture-decision.md`, ainsi que les
-implémentations Flutter 3.41.0 et 3.47.2 de `RenderObject`, `RenderBox`,
-`RenderParagraph`, `WidgetSpan` et `LayoutBuilder`.
+Ont aussi été reconfirmés : lots 8 à 10 du roadmap, C4/C5 et gates de sa revue,
+contrats du plan/review layout, ainsi que les sources Flutter des deux pins pour
+`RenderObject`, `RenderBox`, `RenderParagraph`, `WidgetSpan` et
+`LayoutBuilder`.
 
-Surface d'entrée : `InlineSpan`, `WidgetSpan`, contraintes, scalers, snapshot de
-groupe et callbacks locaux. Aucun réseau, stockage, base de données, commande,
-authentification, autorisation, session, secret ou cryptographie.
+Surface d'entrée : spans, contraintes, scalers, snapshot de groupe et callbacks
+locaux. Aucun serveur, base, stockage, authentification, autorisation, session,
+secret ou cryptographie.
 
 | Risque | Conclusion |
-|---|---|
+| --- | --- |
 | Injection, XSS, SQL, commandes | hors surface |
 | Authentification, autorisation/IDOR, CSRF, session | hors surface |
 | Cryptographie, secrets, divulgation | hors surface |
-| Race/état | snapshot et absence de publication dry vérifiés ; lifecycle replacement reste la décision bloquante |
-| Disponibilité/DoS | child sans dry échoue au chemin attendu ; coût monotone borné par compteurs |
-| Ressources | painters temporaires et paragraphe possédé couverts ; eager tickers/focus non prouvés et correctement renvoyés au nouveau spike |
-| Logique métier | monotonie, zéro, groupe et branche replacement examinés ; findings ci-dessus |
+| Race/état | snapshot dry immuable, zéro publication dry, lifecycle lazy archivé |
+| Disponibilité/DoS | erreurs dry honnêtes, aucun fallback factice présenté comme exact, coût borné |
+| Ressources | painters, paragraphe et wrappers couverts au teardown et après exception |
+| Logique métier | blocker, eager, intrinsics, zéro, cache, groupe et non-monotonie couverts |
 
-Non vérifiés, car hors demande ou absents de l'artefact : appareil physique,
-web/profile, suite package complète, focus/tickers eager, et trace numérique du
-probe lazy annoncée. Le répertoire d'archive temporaire, les résolutions et les
-sorties de test ont été supprimés après revue.
+Appareil physique, web/profile et suite produit complète ne sont pas requis
+pour accepter cette **note de prototype NO-GO** et ne deviennent pas de
+nouvelles conditions exploratoires. Le répertoire d'archive et tous les
+artefacts temporaires ont été supprimés après revalidation.
 
 ## Décision de sortie
 
-La note peut être acceptée après correction des quatre points ci-dessus sans
-changer son verdict principal. Jusqu'à cette correction, le statut reste :
-
-**NO-GO architectural confirmé ; note CHANGEMENTS REQUIS ; lots 9/10 arrêtés.**
+**NOTE ACCEPTÉE ; NO-GO du contrat actuel confirmé ; lots 9/10 suspendus.**
