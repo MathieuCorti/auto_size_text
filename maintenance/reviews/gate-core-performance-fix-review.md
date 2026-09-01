@@ -2,7 +2,9 @@
 
 Date : 2026-09-01
 
-Tête revue : `9ec35e9f1481d346c7df5516de618b151de95097`
+Tête produit revue : `9ec35e9f1481d346c7df5516de618b151de95097`
+
+Tête de sanity test-only : `29f50dd98eed921d23d89b85d18646fbf0817155`
 
 Base comparée : `b07066ffe321dff059c9d7d8008b2713e30e1aee`
 
@@ -40,8 +42,13 @@ observé.
 
 Les cinq mutants demandés sont rouges sur Flutter 3.41.0 et 3.47.2. Après
 suppression de toute instrumentation, les analyses fatales et les suites
-complètes passent à `121/121` sur chaque SDK. Le diff final de cette revue ne
-contient que le présent rapport.
+complètes initiales passent à `121/121` sur chaque SDK.
+
+La sanity postérieure de `c4723da`, `40a606e` et `29f50dd` confirme que leur
+delta est strictement test/documentation, sans changement de `lib/`. Le probe
+M=64 conserve tous ses compteurs, le témoin résolu ne fuit aucun painter et la
+matrice étendue passe à `125/125` sur chaque SDK. Le diff final de cette revue
+ne contient que le présent rapport.
 
 Aucun finding P0, P1, P2 ou P3 n'est ouvert.
 
@@ -265,6 +272,71 @@ projection ou d'une mise à jour du même groupe. Les mutations multi-époque et
 le test permanent de conservation après erreur n'ont révélé aucune
 désynchronisation entre cache, map et minimum.
 
+## Sanity après le témoin de fit résolu
+
+La plage `31186fe..29f50dd` contient uniquement :
+
+- `maintenance/implementation/gate-core-fixes.md` ;
+- `test/maxlines_test.dart` ;
+- `test/preset_font_sizes_test.dart` ;
+- `test/text_fit_oracle_test.dart` ;
+- `test/text_painter_lifecycle_test.dart` ;
+- `test/utils.dart`.
+
+`git diff --quiet 31186fe..29f50dd -- lib` retourne zéro. Les blobs de
+`lib/src/auto_size_group.dart` sont identiques à
+`6f108ad35e12615994d95a5c0834914aa8d26186` avant et après ; ceux de
+`lib/src/auto_size_text.dart` sont identiques à
+`3dde5d2fe6612379f1ac23bee442e7a4afd1269e`. Il n'existe donc aucun changement
+de la map, du minimum, du cache publié, de la projection, des notifications ou
+de l'API consommateur.
+
+### Compteurs groupe inchangés
+
+Une instrumentation jetable nouvelle, retirée avant la matrice, a recompté
+les appels et visites de `_recalculateFontSize` sur la tête de sanity. Les
+résultats sont identiques sur Flutter 3.41.0 et 3.47.2 :
+
+| Chemin M=64 | Appels/visites après témoin |
+|---|---:|
+| première vague ascendante | `0 / 0` |
+| première vague descendante | `0 / 0` |
+| hausse d'un non-minimum | `0 / 0` |
+| baisse sous `G` | `0 / 0` |
+| remontée du minimum | `1 / 64` |
+| retrait d'un non-minimum | `0 / 0` |
+| retrait du minimum, 62 survivants | `1 / 62` |
+
+Le témoin n'est appelé que depuis des tests après montage d'un
+`RenderParagraph`. Il ne publie aucun rapport, ne lit aucun groupe et ne
+planifie aucune microtâche. Le test de preset groupé l'utilise seulement après
+la convergence pour confirmer le fit du paragraphe rendu. Les oracles de
+minimum, coalescence, transfert, dispose et projection logarithmique restent
+verts dans le ciblé 50/50.
+
+### Coût et durée de vie du témoin
+
+`renderParagraphFits` et son helper `_resolvedTextPainter` vivent exclusivement
+dans `test/utils.dart`. Une recherche de tous leurs appels ne trouve que des
+fichiers sous `test/`. Ils ne sont ni exportés, ni compilés dans la bibliothèque
+consommateur et n'ajoutent donc aucun coût CPU, mémoire ou taille au produit.
+
+Dans le harness :
+
+- le chemin normal crée un painter, le layout puis le libère dans `finally` ;
+- `wrapWords:false` crée d'abord le painter non wrappé, qui est libéré avant
+  tout retour anticipé ou avant la création du painter de paragraphe ;
+- le chemin complet crée donc deux painters **séquentiels**, jamais deux
+  painters vivants simultanément ;
+- le parcours du texte et des plages indivisibles est proportionnel au contenu
+  du témoin et reste confiné aux assertions de test.
+
+Un probe leak jetable avec `experimentalLeakTesting` a exécuté séparément le
+retour anticipé et le chemin complet à deux painters. Il passe `2/2` sous les
+deux SDK. Le test lifecycle permanent du helper et le ciblé incluant le leak
+tracking passent également sur les deux pins. Aucun painter, callback ou état
+de groupe supplémentaire n'est conservé.
+
 ## Matrice
 
 Versions constatées :
@@ -276,11 +348,13 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 | Contrôle | 3.41.0 | 3.47.2 |
 |---|---:|---:|
-| probe intact, 5 scénarios | `5/5` | `5/5` |
-| probe + groupes/contraintes/builder/leak ciblés | `31/31` | `31/31` |
+| probe initial intact, 5 scénarios | `5/5` | `5/5` |
+| sanity compteur post-témoin | `2/2` | `2/2` |
+| sanity leak jetable du témoin | `2/2` | `2/2` |
+| harness + groupes/contraintes/builder/leak ciblés | `50/50` | `50/50` |
 | cinq mutants | tous rouges | tous rouges |
 | analyse fatale `lib test`, hooks supprimés | aucun diagnostic | aucun diagnostic |
-| suite complète, hooks supprimés | `121/121` | `121/121` |
+| suite complète étendue, hooks supprimés | `125/125` | `125/125` |
 
 Les résolutions ont été refaites avec le SDK exécuté avant chaque run. Aucun
 lock suivi n'a changé.
@@ -305,6 +379,11 @@ Le chemin interactif et les preuves croisées ont aussi été relus :
 - les oracles de projection et de cycle de vie des groupes ;
 - les rapports indépendants projection/lifecycle/lot 5 et le journal du lot 5 ;
 - les skills `find-bugs` et `developing-flutter`, avec leurs cinq références.
+
+Les six fichiers du delta de sanity `31186fe..29f50dd`, listés dans la section
+précédente, ont également été relus intégralement. Les deux fichiers produit
+dont les blobs ont été comparés ont été relus à nouveau autour des chemins
+groupe/cache ; leur contenu est byte-identique à la contre-revue initiale.
 
 Aucun `AGENTS.md` additionnel n'est présent dans le worktree. L'instruction
 PostHog fournie au chantier ne s'applique pas à cette revue locale.
