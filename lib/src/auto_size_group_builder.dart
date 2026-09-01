@@ -1,15 +1,15 @@
-part of auto_size_text;
+part of '../auto_size_text.dart';
 
 /// A Flutter widget that provides an [AutoSizeGroup] to its builder function.
 class AutoSizeGroupBuilder extends StatefulWidget {
   final Widget Function(BuildContext context, AutoSizeGroup autoSizeGroup)
-      builder;
+  builder;
 
   /// Creates an [AutoSizeGroupBuilder] widget.
-  AutoSizeGroupBuilder({Key? key, required this.builder}) : super(key: key);
+  const AutoSizeGroupBuilder({super.key, required this.builder});
 
   @override
-  _AutoSizeGroupBuilderState createState() => _AutoSizeGroupBuilderState();
+  State<AutoSizeGroupBuilder> createState() => _AutoSizeGroupBuilderState();
 }
 
 class _AutoSizeGroupBuilderState extends State<AutoSizeGroupBuilder> {
@@ -20,4 +20,3 @@ class _AutoSizeGroupBuilderState extends State<AutoSizeGroupBuilder> {
     return widget.builder(context, _group);
   }
 }
-

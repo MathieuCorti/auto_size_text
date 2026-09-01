@@ -4,7 +4,8 @@ description: AutoSizeText example
 version: 1.0.0
 
 environment:
-  sdk: '>=2.12.0-0 <3.0.0'
+  sdk: '>=3.11.0 <4.0.0'
+  flutter: '>=3.41.0'
 
 dependencies:
   flutter:
@@ -14,10 +15,9 @@ dependencies:
     path: ../
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
+  flutter_lints: ^6.0.0
 
 flutter:
-  uses-material-design: true 
+  uses-material-design: true
 
 publish_to: none

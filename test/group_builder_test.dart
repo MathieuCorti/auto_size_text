@@ -85,4 +85,3 @@ void main() {
     _expectFontSizes(tester, 50);
   });
 }
-

@@ -12,10 +12,7 @@ void main() {
       widget: SizedBox(
         width: 500,
         height: 100,
-        child: AutoSizeText(
-          'XXXXX',
-          presetFontSizes: [100, 50, 5],
-        ),
+        child: AutoSizeText('XXXXX', presetFontSizes: [100, 50, 5]),
       ),
     );
 
@@ -25,10 +22,7 @@ void main() {
       widget: SizedBox(
         width: 300,
         height: 100,
-        child: AutoSizeText(
-          'XXXXX',
-          presetFontSizes: [100, 50, 5],
-        ),
+        child: AutoSizeText('XXXXX', presetFontSizes: [100, 50, 5]),
       ),
     );
 
@@ -38,10 +32,7 @@ void main() {
       widget: SizedBox(
         width: 20,
         height: 100,
-        child: AutoSizeText(
-          'XXXXX',
-          presetFontSizes: [100, 50, 5],
-        ),
+        child: AutoSizeText('XXXXX', presetFontSizes: [100, 50, 5]),
       ),
     );
   });

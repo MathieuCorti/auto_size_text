@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'utils.dart';
 
 class GroupTest extends StatefulWidget {
+  const GroupTest({super.key});
+
   @override
   GroupTestState createState() => GroupTestState();
 }
@@ -60,7 +62,7 @@ void _expectFontSizes(WidgetTester tester, double fontSize) {
 
 void main() {
   testWidgets('Group sync', (tester) async {
-    await tester.pumpWidget(GroupTest());
+    await tester.pumpWidget(const GroupTest());
 
     _expectFontSizes(tester, 50);
 

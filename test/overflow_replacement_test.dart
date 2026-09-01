@@ -21,8 +21,9 @@ void main() {
     expect(text.data, 'OVERFLOW!');
   });
 
-  testWidgets('Overflow replacement not visible without overflow',
-      (tester) async {
+  testWidgets('Overflow replacement not visible without overflow', (
+    tester,
+  ) async {
     final text = await pumpAndGetText(
       tester: tester,
       widget: SizedBox(

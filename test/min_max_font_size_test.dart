@@ -1,6 +1,5 @@
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'utils.dart';
@@ -74,10 +73,7 @@ void main() {
       expectedFontSize: 20,
       widget: DefaultTextStyle(
         style: TextStyle(fontSize: 30),
-        child: AutoSizeText(
-          'AutoSizeText Test',
-          maxFontSize: 20,
-        ),
+        child: AutoSizeText('AutoSizeText Test', maxFontSize: 20),
       ),
     );
 

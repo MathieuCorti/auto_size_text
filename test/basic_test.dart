@@ -6,10 +6,7 @@ import 'utils.dart';
 
 void main() {
   testWidgets('Only Text', (tester) async {
-    await pump(
-      tester: tester,
-      widget: AutoSizeText('Some Text'),
-    );
+    await pump(tester: tester, widget: AutoSizeText('Some Text'));
   });
 
   testWidgets('Only text (rich)', (tester) async {
@@ -23,10 +20,7 @@ void main() {
     await pumpAndExpectFontSize(
       tester: tester,
       expectedFontSize: 34,
-      widget: AutoSizeText(
-        'Some Text',
-        style: TextStyle(fontSize: 34),
-      ),
+      widget: AutoSizeText('Some Text', style: TextStyle(fontSize: 34)),
     );
   });
 
@@ -42,10 +36,7 @@ void main() {
   });
 
   testWidgets('Respects inherit style', (tester) async {
-    final defaultStyle = TextStyle(
-      fontSize: 20,
-      color: Colors.yellow,
-    );
+    final defaultStyle = TextStyle(fontSize: 20, color: Colors.yellow);
     final text = await pumpAndGetText(
       tester: tester,
       widget: DefaultTextStyle(
@@ -54,9 +45,7 @@ void main() {
         softWrap: false,
         overflow: TextOverflow.ellipsis,
         maxLines: 17,
-        child: AutoSizeText(
-          'AutoSizeText Test',
-        ),
+        child: AutoSizeText('AutoSizeText Test'),
       ),
     );
     expect(text.style, defaultStyle);
@@ -68,8 +57,9 @@ void main() {
     expect(richText.maxLines, 17);
   });
 
-  testWidgets('Applies scale even if initial fontSize fits (#25)',
-      (tester) async {
+  testWidgets('Applies scale even if initial fontSize fits (#25)', (
+    tester,
+  ) async {
     await pumpAndExpectFontSize(
       tester: tester,
       expectedFontSize: 60,
@@ -85,10 +75,7 @@ void main() {
     final textKey = GlobalKey();
     final text = await pumpAndGetText(
       tester: tester,
-      widget: AutoSizeText(
-        'A text with key',
-        textKey: textKey,
-      ),
+      widget: AutoSizeText('A text with key', textKey: textKey),
     );
     expect(text.key, textKey);
   });

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,30 +39,28 @@ bool doesTextFit(
 
 bool prepared = false;
 
-Future prepareTests(WidgetTester tester) async {
+Future<void> prepareTests(WidgetTester tester) async {
   if (prepared) {
     return;
   }
 
   prepared = true;
-  final fontData = File('test/assets/Roboto-Regular.ttf')
-      .readAsBytes()
-      .then((bytes) => ByteData.view(Uint8List.fromList(bytes).buffer));
+  final fontData = File('test/assets/Roboto-Regular.ttf').readAsBytes().then(
+    (bytes) => ByteData.view(Uint8List.fromList(bytes).buffer),
+  );
 
   final fontLoader = FontLoader('Roboto')..addFont(fontData);
   await fontLoader.load();
 }
 
-Future pump({
+Future<void> pump({
   required WidgetTester tester,
   required Widget widget,
 }) async {
   await tester.pumpWidget(
     Directionality(
       textDirection: TextDirection.ltr,
-      child: Center(
-        child: widget,
-      ),
+      child: Center(child: widget),
     ),
   );
 }
@@ -76,7 +73,7 @@ Future<Text> pumpAndGetText({
   return tester.widget<Text>(find.byType(Text));
 }
 
-Future pumpAndExpectFontSize({
+Future<void> pumpAndExpectFontSize({
   required WidgetTester tester,
   required double expectedFontSize,
   required Widget widget,
@@ -89,9 +86,9 @@ RichText getRichText(WidgetTester tester) =>
     tester.widget(find.byType(RichText));
 
 class OverflowNotifier extends StatelessWidget {
-  final VoidCallback overflowCallback;
+  const OverflowNotifier(this.overflowCallback, {super.key});
 
-  OverflowNotifier(this.overflowCallback);
+  final VoidCallback overflowCallback;
 
   @override
   Widget build(BuildContext context) {

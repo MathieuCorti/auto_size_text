@@ -1,4 +1,4 @@
-part of auto_size_text;
+part of '../auto_size_text.dart';
 
 /// Controller to synchronize the fontSize of multiple AutoSizeTexts.
 class AutoSizeGroup {

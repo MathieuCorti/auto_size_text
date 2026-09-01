@@ -1,6 +1,6 @@
 /// Flutter widget that automatically resizes text to fit perfectly within its
 /// bounds.
-library auto_size_text;
+library;
 
 import 'dart:async';
 
