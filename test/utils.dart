@@ -16,9 +16,9 @@ bool doesTextFit(
 ]) {
   final span = text.textSpan ?? TextSpan(text: text.data, style: text.style);
   var maxLines = text.maxLines;
-  if (!wrapWords) {
+  if (!wrapWords && maxLines != null) {
     final wordCount = span.toPlainText().split(RegExp('\\s+')).length;
-    maxLines = maxLines!.clamp(1, wordCount);
+    maxLines = maxLines.clamp(1, wordCount);
   }
 
   final textPainter = TextPainter(
@@ -26,7 +26,7 @@ bool doesTextFit(
     textAlign: text.textAlign ?? TextAlign.start,
     textDirection: text.textDirection,
     textScaler: text.textScaler ?? TextScaler.noScaling,
-    maxLines: text.maxLines,
+    maxLines: maxLines,
     locale: text.locale,
     strutStyle: text.strutStyle,
   );
