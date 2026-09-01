@@ -2,7 +2,7 @@
 
 Date : 2026-09-01
 
-Tête revue : `b01ceae94ed1a7bfc3bd1b7a458bc3ea9661e397`
+Tête revue : `0542d9e74d3be916b1bd4b9f0785dcff4a822219`
 
 Delta initial relu : `69b9ff3..b32100f`
 
@@ -12,7 +12,9 @@ Corrections revalidées :
 - `20a530a` — comparaison des contrôleurs par identité ;
 - `577b83f` — compte rendu des premières corrections ;
 - `a2ab5ab` — observation du rapport conservé avant toute republication ;
-- `b01ceae` — compte rendu de l'oracle strict.
+- `b01ceae` — compte rendu de l'oracle strict ;
+- `a875c5b` — exigence de la frame de notification après retrait ;
+- `0542d9e` — compte rendu de l'oracle de notification.
 
 Worktree exclusif :
 `/private/tmp/auto-size-text-review-groups-projection`
@@ -47,6 +49,13 @@ rollback cohérent qui retire/réinscrit A et remet son cache de publication à
 `null` devient rouge sur les deux SDK : C rend 70 au lieu de 50. Aucun accès
 privé ni republication d'A ne participe à l'observation.
 
+L'assertion ajoutée par `a875c5b` exige en plus qu'une frame soit réellement
+planifiée par le retrait de B avant la pompe de synchronisation. Le mutant qui
+supprime cette notification devient rouge sur les deux SDK avec
+`Expected: true, Actual: false`. Le delta est exclusivement test/documentation :
+aucun octet de `lib/`, aucune règle `L/P/G/R` et aucune borne de complexité ne
+changent.
+
 Aucun finding P0, P1, P2 ou P3 ne subsiste.
 
 ## Findings ordonnés
@@ -60,7 +69,7 @@ Aucun finding P0, P1, P2 ou P3 ne subsiste.
 
 L'oracle précédent changeait le scaler d'A après l'`ArgumentError`. Il pouvait
 donc republier `P_A = 50` et masquer un rollback qui remettait aussi le cache à
-`null`. Le test courant, lignes 577-645 de
+`null`. Le test courant, lignes 577-646 de
 `test/group_constraints_test.dart`, construit C, A puis B dans cet ordre. Seul
 B est stateful et seul `showLimiter` change après l'erreur.
 
@@ -76,10 +85,12 @@ Preuve par le rollback complet temporaire :
   de harness ni d'une seconde sortie invalide non consommée.
 
 Sur le produit intact, C rend 50 après la pompe de synchronisation et
-`hasScheduledFrame` est faux. Le test interdit donc aussi qu'une vague différée
-reproduise 50 après avoir momentanément exposé 70. L'oracle est exclusivement
-black-box : il observe le `Text` rendu et l'état public du binding, sans
-introspection du groupe ou du cache.
+`hasScheduledFrame` passe d'abord à vrai après le retrait, puis à faux après la
+pompe témoin. Le test interdit donc une synchronisation forcée sans
+notification et une vague différée qui reproduirait 50 après avoir
+momentanément exposé 70. L'oracle est exclusivement black-box : il observe le
+`Text` rendu et l'état public du binding, sans introspection du groupe ou du
+cache.
 
 ## Preuve formelle du flux `L/P/G/R`
 
@@ -203,9 +214,10 @@ suivante fait rencontrer à A une sortie invalide pour le candidat projeté 20 ;
 l'`ArgumentError` est capturé explicitement par `tester.takeException()`.
 
 La suite ne change ni le widget, ni le scaler, ni le domaine, ni les
-contraintes d'A. Elle retire seulement B, pompe ce retrait, puis effectue une
-unique pompe synchrone. C étant disposé avant A, il observe le minimum avant
-qu'un A dont le cache aurait été annulé puisse republier :
+contraintes d'A. Elle retire seulement B et pompe ce retrait. Elle exige alors
+une frame planifiée, puis effectue une unique pompe synchrone et exige qu'il
+n'en reste aucune. C étant disposé avant A, il observe le minimum avant qu'un A
+dont le cache aurait été annulé puisse republier :
 
 - produit intact : le rapport A=50 a survécu, C rend 50 et aucune frame
   supplémentaire n'est planifiée ;
@@ -231,13 +243,16 @@ Tous les mutants ont été retirés et le diff produit a ensuite été vérifié
 | Tolérance effective autour de `G` | excès d'un ULP | `20.000000000000004` accepté au lieu du rendu 10 |
 | Comparaison de groupes par `!=` | transfert entre deux contrôleurs égaux mais non identiques | `20/20/40` au lieu de `20/40/20` |
 | Rollback cohérent du rapport et du cache après erreur | oracle permanent black-box strict | C rend `70` au lieu de `50` sur les deux SDK |
+| Suppression de `_scheduleNotification()` dans `_remove` | assertion de frame après retrait | `false` au lieu de `true` sur les deux SDK |
 
 Ces rouges discriminent respectivement la perte de la borne locale, la
 confusion `P/R`, la régression de complexité et la réutilisation illégale de la
-tolérance du domaine dans la comparaison effective. Les deux derniers valident
-la correction d'identité et la conservation non transactionnelle de la
-publication. Le rollback complet est désormais rouge dans le test permanent
-sur les deux SDK.
+tolérance du domaine dans la comparaison effective. Les trois derniers
+valident la correction d'identité, la conservation non transactionnelle de la
+publication et la notification après retrait. Le rollback complet est
+désormais rouge dans le test permanent sur les deux SDK. Le mutant sans
+notification est également rouge avant la pompe qui aurait sinon forcé et
+masqué la synchronisation.
 
 ## Matrice exécutée
 
@@ -262,7 +277,11 @@ Les quatre mutants mathématiques/performance initiaux et le mutant d'identité
 ont été exécutés sur Flutter 3.47.2 ; ils échouent dans les assertions métier
 attendues, sans erreur de compilation ou de harness. Le rollback cohérent a
 été rejoué sur les deux SDK contre `a2ab5ab` : le test permanent strict devient
-rouge dans les deux environnements.
+rouge dans les deux environnements. À la tête `0542d9e`, le rollback complet
+reste rouge à 70/50 et le mutant sans notification devient rouge à false/true
+sur les deux SDK. Après retrait des mutants, l'analyse fatale et la suite
+complète 115/115 ont été rejouées sur chaque pin ; les ciblés 61/61 antérieurs
+restent inclus dans ces suites.
 
 ## Périmètre lu intégralement
 
@@ -292,6 +311,9 @@ relus intégralement :
 - `test/group_constraints_test.dart` ;
 - `maintenance/implementation/lot-5-groups.md`.
 
+Ces mêmes deux fichiers, seuls fichiers touchés par la sanity
+`a875c5b..0542d9e`, ont été relus intégralement une nouvelle fois.
+
 Les oracles `maintenance/decisions/group-projection-oracle.md` et
 `maintenance/decisions/group-lifecycle-adversarial-oracle.md`, ainsi que la
 contre-revue de ce dernier, ont également été lus intégralement. Les
@@ -314,7 +336,8 @@ Les points applicables de la checklist ont été vérifiés :
 - disponibilité : dichotomie virtuelle, absence de scan/liste/painter dans la
   projection et compteur logarithmique ;
 - état et race : rapport local mémorisé, minimum synchrone, notification
-  coalescée, absence de republication pendant la vague ;
+  coalescée, frame de retrait réellement planifiée, absence de republication
+  pendant la vague ;
 - cycle de vie : inscription, groupe identique, contrôleurs distincts égaux,
   transfert, passage à `null`, retrait et dispose couverts par les régressions
   ciblées et le mutant `!=` ;
@@ -331,4 +354,5 @@ fichiers temporaires ont été supprimés. Avant la mise à jour de ce rapport,
 vides ; le commit de contre-revue ne contient donc que ce document. Le verdict
 `REJETÉ` de la tête `577b83f` est supersédé par le présent verdict : le produit
 reste correct et l'oracle strict couvre maintenant le rollback complet qui
-motivait le P1.
+motivait le P1, ainsi que la notification de retrait qui rend sa pompe de
+synchronisation causale.
