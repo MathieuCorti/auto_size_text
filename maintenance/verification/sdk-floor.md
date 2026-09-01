@@ -1,6 +1,6 @@
 # Vérification du plancher Flutter/Dart
 
-Date de vérification : 2026-09-01  
+Date de vérification : 2026-09-01
 Base : `dev` / `d0fe48d60715ec749f9a1761416abc1b6f368dcf`
 
 ## Décision

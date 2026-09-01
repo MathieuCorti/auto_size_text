@@ -1,7 +1,10 @@
 part of '../auto_size_text.dart';
 
-/// Controller to synchronize the fontSize of multiple AutoSizeTexts.
+/// Synchronizes the effective font sizes of multiple [AutoSizeText] widgets.
 class AutoSizeGroup {
+  /// Creates a group that can be shared by multiple [AutoSizeText] widgets.
+  AutoSizeGroup();
+
   final _listeners = <_AutoSizeTextState, double>{};
   var _notificationPending = false;
   var _fontSize = double.infinity;

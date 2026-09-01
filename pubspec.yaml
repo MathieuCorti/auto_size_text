@@ -1,7 +1,6 @@
 name: auto_size_text
-description: Flutter widget that automatically resizes text to fit perfectly within its bounds.
-version: 3.0.0
-homepage: https://github.com/leisim/auto_size_text
+description: Auto-sizing Flutter text with rich text, grouping, TextScaler, intrinsic sizing, and WidgetSpan support.
+version: 4.0.0
 
 environment:
   sdk: '>=3.11.0 <4.0.0'

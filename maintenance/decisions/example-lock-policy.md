@@ -1,6 +1,6 @@
 # Politique de lock de l'application `example/`
 
-Date : 2026-09-01  
+Date : 2026-09-01
 Base : `2e8d57b214e03697440ed27ce382abcf1a64ad92`
 
 ## Verdict
