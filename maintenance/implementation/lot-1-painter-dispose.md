@@ -15,21 +15,20 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
   `layout` ;
 - le painter secondaire du chemin `wrapWords: false` a son propre `finally`,
   qui s'exécute aussi avant le retour anticipé d'un mot trop large ;
+- le painter temporaire du helper de test `doesTextFit` a lui aussi un
+  propriétaire local et un `finally` autour du layout et des lectures ;
 - les valeurs mesurées sont lues avant le `dispose`, sans changer la recherche,
   les candidats, la taille calculée, le rendu ou l'API ;
-- sept tests opt-in couvrent le texte qui tient, l'absence de candidat, le
-  retour anticipé, les deux painters du chemin sans wrap, l'exception, les
-  rebuilds et le retrait d'un membre de groupe.
+- huit tests opt-in couvrent le helper, le texte qui tient, l'absence de
+  candidat, le retour anticipé, les deux painters du chemin sans wrap,
+  l'exception, les rebuilds et le retrait d'un membre de groupe.
 
 ## Fichiers
 
 - `lib/src/auto_size_text.dart` ;
 - `test/text_painter_lifecycle_test.dart` ;
+- `test/utils.dart` ;
 - `maintenance/implementation/lot-1-painter-dispose.md`.
-
-`test/utils.dart` n'est pas modifié : son helper painter n'est appelé par aucun
-test de ce lot. Aucun helper de test supplémentaire ne nécessitait donc un
-propriétaire pour établir la preuve produit.
 
 ## Preuve rouge sur le parent
 
@@ -67,6 +66,22 @@ Résultat rouge attendu : **2 ressources `TextPainter` `notDisposed`**, une
 créée au site du painter de mots et une au site du painter principal. Cette
 preuve du parent distingue les deux propriétaires à corriger.
 
+Après le finding P2 de la revue indépendante, un huitième test permanent a été
+ajouté. Il appelle réellement `doesTextFit` avec le même réglage leak opt-in :
+
+```sh
+/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
+  --no-version-check --suppress-analytics test --no-pub \
+  --reporter expanded test/text_painter_lifecycle_test.dart \
+  --plain-name \
+  'should dispose the helper painter after checking text fit'
+```
+
+Avant le correctif du helper, son assertion fonctionnelle passe, puis
+`tearDownAll` échoue avec exactement **1 ressource `TextPainter`
+`notDisposed`**. La stack de création pointe directement sur
+`doesTextFit (test/utils.dart:23)` via `FlutterMemoryAllocations`.
+
 ## Preuves vertes
 
 Toolchains exactes :
@@ -80,8 +95,8 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 | Commande | Résultat |
 |---|---|
-| test lifecycle ciblé, reporter expanded | Succès, 7/7 et aucune fuite au `tearDownAll`. |
-| suite racine complète, reporter compact | Succès, 32/32 : les 25 tests historiques et les 7 nouveaux tests. |
+| test lifecycle ciblé, reporter expanded | Succès, 8/8 et aucune fuite au `tearDownAll`. |
+| suite racine complète, reporter compact | Succès, 33/33 : les 25 tests historiques et les 8 nouveaux tests. |
 | analyse scoped `lib test example/main.dart` | Code 1 attendu ; exactement 9 informations historiques `deprecated_member_use`, 0 warning, 0 erreur. |
 | `example/` : `pub get --enforce-lockfile` | Succès ; lock canonique haut inchangé. |
 | `example/` : analyse fatale `--no-pub` | Succès, aucun diagnostic. |
@@ -89,16 +104,16 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 ### Flutter 3.41.0
 
-Le commit candidat `b4b3091` a été extrait par `git archive` dans
-`/private/tmp/auto-size-text-lot1-min.i2TjFi`. Le lock canonique de l'exemple a
-été déplacé avant toute résolution minimum, conformément à la décision de
-lock.
+L'état fonctionnel du correctif a été extrait par `git archive` dans
+`/private/tmp/auto-size-text-lot1-helper-min.4vz6p3`. Le lock canonique de
+l'exemple a été déplacé avant toute résolution minimum, conformément à la
+décision de lock. L'amendement final ne change que ce journal.
 
 | Commande | Résultat |
 |---|---|
 | `flutter pub get --no-example` | Succès, 26 dépendances résolues naturellement. |
-| test lifecycle ciblé, reporter expanded | Succès, 7/7 et aucune fuite au `tearDownAll`. |
-| suite racine complète, reporter compact | Succès, 32/32 : résultats historiques inchangés. |
+| test lifecycle ciblé, reporter expanded | Succès, 8/8 et aucune fuite au `tearDownAll`. |
+| suite racine complète, reporter compact | Succès, 33/33 : résultats historiques inchangés. |
 | analyse scoped `lib test example/main.dart` | Code 1 attendu ; les mêmes 9 informations historiques, 0 warning, 0 erreur. |
 | `example/` sans lock : `flutter pub get` | Succès, 10 dépendances, dont `meta 1.17.0` et `vector_math 2.2.0`. |
 | `example/` : analyse fatale `--no-pub` | Succès, aucun diagnostic. |
@@ -118,5 +133,6 @@ Les neuf informations scoped restent celles du lot 0. Les deux nouveaux
   la responsabilité des lots 9 et 10.
 - Aucun fichier de démo, CI, packaging, lock ou documentation publique n'est
   modifié.
-- La revue indépendante Dart/Flutter ressources reste à effectuer avant merge.
-  Aucun merge, push ou changement distant n'a été réalisé par ce lot.
+- Le finding P2 de la revue indépendante `e358162` est corrigé ; une re-review
+  indépendante reste requise avant merge. Aucun merge, push ou changement
+  distant n'a été réalisé par ce lot.

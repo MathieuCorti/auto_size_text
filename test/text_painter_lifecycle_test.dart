@@ -22,6 +22,18 @@ class _ThrowingTextSpan extends TextSpan {
 
 void main() {
   group('AutoSizeText TextPainter lifecycle', () {
+    testWidgets('should dispose the helper painter after checking text fit', (
+      _,
+    ) async {
+      const text = Text(
+        'helper text',
+        style: TextStyle(fontSize: 20),
+        textDirection: TextDirection.ltr,
+      );
+
+      expect(doesTextFit(text, 200, 40), isTrue);
+    }, experimentalLeakTesting: nativeResourceLeakTesting);
+
     testWidgets('should dispose the painter when the initial font size fits', (
       tester,
     ) async {
