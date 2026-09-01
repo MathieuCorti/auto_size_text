@@ -30,11 +30,15 @@ bool doesTextFit(
     strutStyle: text.strutStyle,
   );
 
-  textPainter.layout(maxWidth: maxWidth);
+  try {
+    textPainter.layout(maxWidth: maxWidth);
 
-  return !(textPainter.didExceedMaxLines ||
-      textPainter.height > maxHeight ||
-      textPainter.width > maxWidth);
+    return !(textPainter.didExceedMaxLines ||
+        textPainter.height > maxHeight ||
+        textPainter.width > maxWidth);
+  } finally {
+    textPainter.dispose();
+  }
 }
 
 bool prepared = false;
