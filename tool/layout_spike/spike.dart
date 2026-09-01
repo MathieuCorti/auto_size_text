@@ -103,7 +103,7 @@ final class SpikeCandidateScaler extends TextScaler {
     required this.source,
     required this.candidate,
     required this.reference,
-  }) : assert(reference > 0);
+  }) : assert(reference >= 0);
 
   final TextScaler source;
   final double candidate;
@@ -111,11 +111,15 @@ final class SpikeCandidateScaler extends TextScaler {
 
   @override
   double scale(double fontSize) {
+    if (reference == 0) {
+      return 0;
+    }
     return source.scale(fontSize * candidate / reference);
   }
 
   @override
-  double get textScaleFactor => scale(reference) / reference;
+  double get textScaleFactor =>
+      reference == 0 ? 0 : scale(reference) / reference;
 
   @override
   bool operator ==(Object other) {
