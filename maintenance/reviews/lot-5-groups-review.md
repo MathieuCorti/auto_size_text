@@ -14,10 +14,12 @@ Correctifs contre-revus :
 - `cbd3641` — comparaison des contrôleurs par identité ;
 - `5d3fb6a5585921dabd134b0c8a5f1ff87d4b897e` — journal corrigé ;
 - `581b8506797fed9ac17dd65dd49dbc6ed3463abf` — oracle strict de rétention ;
-- `d1a5aae7d2cdd72a9ca465d8e81813c687423ac6` — journal strict.
+- `d1a5aae7d2cdd72a9ca465d8e81813c687423ac6` — journal strict ;
+- `a2ead5194e46e33c7518b1de9f891351189095a4` — oracle de frame au retrait ;
+- `1dc7a63e38da170c2456af5e16acb3a2227a1c86` — journal de frame.
 
 Plages revues : `c9a1adc..b32100f`, `fb306d0..5d3fb6a`, puis
-`22d0ce3..d1a5aae`.
+`22d0ce3..d1a5aae` et `fbedb50..1dc7a63`.
 
 Périmètre : unités logique/effective `L/P/G/R`, projection dans le domaine de
 chaque membre, scalers linéaires/non linéaires/plateaux, replacement, erreurs,
@@ -43,10 +45,13 @@ Le P1 de preuve est désormais clos : le nouvel oracle garde A strictement
 inchangé, retire seulement B et observe C avant toute republication possible
 de A. Le rollback complet `_remove/_register` avec cache remis à `null`, vert
 sur l'ancien test, devient rouge avec `C=70` au lieu de 50 sur Flutter 3.41.0
-et 3.47.2. Le P2 produit reste clos : `didUpdateWidget` compare les contrôleurs
-avec `identical`, et sa régression couvre transfert, transition ultérieure,
-assertions et frame témoin sur les deux SDK. Aucun P0, P1 restant, P2 restant
-ou P3 actionnable n'a été trouvé.
+et 3.47.2. L'assertion ajoutée par `a2ead51` tue en outre le mutant qui
+recalcule `G` au retrait mais ne planifie aucune notification : attendu
+`hasScheduledFrame == true`, obtenu `false` sur les deux pins. Le P2 produit
+reste clos : `didUpdateWidget` compare les contrôleurs avec `identical`, et sa
+régression couvre transfert, transition ultérieure, assertions et frame témoin
+sur les deux SDK. Aucun P0, P1 restant, P2 restant ou P3 actionnable n'a été
+trouvé.
 
 ## Statut des findings
 
@@ -54,7 +59,7 @@ ou P3 actionnable n'a été trouvé.
 
 **Fichiers :**
 
-- `test/group_constraints_test.dart:577-653` ;
+- `test/group_constraints_test.dart:577-646` ;
 - `maintenance/implementation/lot-5-groups.md:59-69` ;
 - contrat : `maintenance/decisions/group-lifecycle-adversarial-oracle.md`,
   contrainte d'acceptation 10.
@@ -117,6 +122,33 @@ cd /private/tmp/auto-size-groups-new-dKILp1
 Résultats avec le même mutant : ancien oracle `5d3fb6a`, 1/1 vert sur chaque
 SDK ; oracle strict `d1a5aae`, rouge `C=70.0` contre 50 sur chaque SDK. Le
 finding est clos sans modification produit.
+
+La sanity lifecycle a vérifié la seconde faiblesse possible du même montage :
+sans appel à `_scheduleNotification()` dans `_remove`, le retrait de B
+recalcule bien `G=50`, mais C ne reçoit aucun `_notifySync`. Les deux pompes de
+l'oracle précédent pouvaient forcer la frame suivante et masquer ce défaut.
+`a2ead51` exige désormais `hasScheduledFrame == true` immédiatement après la
+pompe qui retire B, avant toute pompe de synchronisation, puis conserve
+l'attente finale à `false`.
+
+Le mutant temporaire supprimait seulement la branche de planification de
+`_remove`, en conservant suppression et recalcul. Le test devient rouge à la
+nouvelle ligne 640 avec `Expected: true, Actual: false` sur les deux SDK, sans
+autre échec :
+
+```text
+cd /private/tmp/auto-size-groups-noschedule-XToUng
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+```
+
+Cette assertion verrouille la notification de retrait sans modifier le produit
+ni affaiblir la preuve de rétention ; P1 reste clos.
 
 ### P2 clos — transfert fondé sur l'identité des contrôleurs
 
@@ -183,7 +215,10 @@ seconde moitié du test protège un mode d'échec distinct.
 Une recherche exhaustive dans `lib` ne trouve aucune autre comparaison entre
 deux contrôleurs. Les autres occurrences sont des gardes de nullité et des
 tests de présence d'état dans la map ; elles ne consultent pas une égalité de
-contrôleur concurrente.
+contrôleur concurrente. Le delta `fbedb50..1dc7a63` ne touche aucun fichier
+produit ; la recherche finale retrouve toujours uniquement
+`!identical(oldWidget.group, widget.group)`. Les ciblés 61/61 sur les deux SDK
+rejouent le transfert, la transition ultérieure et les assertions sans échec.
 
 Commandes mutantes exactes :
 
@@ -237,8 +272,10 @@ La suppression du dernier membre ramène `G` à `+∞` sans tâche vide nouvelle
 une tâche déjà pending se consomme sur les membres actuels. L'ordre de layout
 peut donner des rendus intermédiaires différents pendant la frame de
 publication, mais une vague unique synchronise ensuite l'état stable. La frame
-témoin ne planifie rien. Aucun painter ou ressource native supplémentaire
-n'est possédé par le groupe.
+témoin ne planifie rien. Le retrait discriminant exige maintenant une frame
+pending avant synchronisation et aucune après stabilisation ; le mutant qui
+omet la notification est donc rouge. Aucun painter ou ressource native
+supplémentaire n'est possédé par le groupe.
 
 ### Complexité et interactions lots 2 à 4
 
@@ -300,7 +337,7 @@ deux rouges exclusivement lot 5 : domaine+scaler et preset disjoint.
   test/preset_font_sizes_test.dart
 ```
 
-## Matrice indépendante finale sur `d1a5aae`
+## Matrice indépendante finale sur `1dc7a63`
 
 Toolchains exactes :
 
@@ -392,13 +429,13 @@ downgrade 115/115 ; neuf dépendances abaissées ; suite après downgrade
 Contrôles complémentaires :
 
 ```text
-git diff --check 22d0ce3..d1a5aae
+git diff --check fbedb50..1dc7a63
 git rev-parse HEAD
 git branch --show-current
 ```
 
 Résultat : diff propre ; tête exacte
-`d1a5aae7d2cdd72a9ca465d8e81813c687423ac6` ; branche
+`1dc7a63e38da170c2456af5e16acb3a2227a1c86` ; branche
 `codex/review-groups`. Toutes les extractions parent/minimum, les mutants, les
 tests de probe, les `.dart_tool`, builds et locks racine générés ont été
 supprimés avant rédaction. Le lock d'exemple suivi n'a pas changé.
@@ -433,6 +470,12 @@ La revalidation finale a relu intégralement les deux fichiers du delta strict
 1. `test/group_constraints_test.dart` ;
 2. `maintenance/implementation/lot-5-groups.md`.
 
+La sanity finale a relu intégralement les deux fichiers du delta test-only
+`fbedb50..1dc7a63` :
+
+1. `test/group_constraints_test.dart` ;
+2. `maintenance/implementation/lot-5-groups.md`.
+
 Le contexte directement interactif a également été lu intégralement :
 
 - `lib/auto_size_text.dart`, `lib/src/auto_size_group_builder.dart` ;
@@ -463,5 +506,6 @@ publication, coalescence, snapshot courant, transfert et dispose : le chemin
 nominal est propre et le P2 d'identité est clos. La disponibilité a été
 contrôlée par le domaine virtuel et la revue des allocations : aucun nouveau
 DoS actionnable. La preuve d'exception stricte tue les rollbacks partiel et
-complet ; le P1 est clos. Aucun autre finding n'est apparu. Aucune zone du diff
-n'est restée non vérifiée.
+complet, et l'assertion de frame tue l'omission de notification au retrait ; le
+P1 est clos. Aucun autre finding n'est apparu. Aucune zone du diff n'est restée
+non vérifiée.
