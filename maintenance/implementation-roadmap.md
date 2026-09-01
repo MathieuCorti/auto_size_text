@@ -602,6 +602,10 @@ Le prototype doit démontrer :
 - chemins dry et wet distincts : un child sans dry layout fonctionne en wet
   ordinaire ; le mini-probe WidgetSpan retourne des métriques zéro en
   dry/intrinsic sans consulter ce child ;
+- le mini-probe WidgetSpan du gate porte sur un seul placeholder et démontre
+  seulement wet automatique/taille et isolation de ses six métriques non-wet.
+  Paint, transform, hit test, sémantique, disposal du nouveau wrapper et ordre
+  multi-placeholder restent à prouver au lot 10 ;
 - baselines dry/wet pour alignements supportés ; scaling différent par taille
   de run ; taille de run zéro sans division ;
 - branche `overflowReplacement` inactive non montée ; aucune politique eager ;
@@ -619,9 +623,10 @@ Le prototype doit démontrer :
 
 - **GO :** la note prouve toutes les questions sans nouvelle API publique, type
   privé, eager mount ou copie substantielle de `RenderParagraph`, et borne le
-  coût à `O(log C)` pour le texte et `O(P log C)` pour `P` placeholders
-  monotones. Elle documente les deux divergences admises : replacement lazy et
-  placeholder WidgetSpan zéro en dry/intrinsic.
+  coût à `O(log C)` pour le texte. `O(P log C)` reste la cible d'acceptation du
+  lot 10, pas une propriété du mini-probe lean à un placeholder. La note
+  documente les deux divergences admises : replacement lazy et placeholder
+  WidgetSpan zéro en dry/intrinsic.
 - **NO-GO :** les lots 9 et 10 ne démarrent pas ; la release production reste
   bloquée. Un nouveau design retourne en revue, sans garde approximative.
 - **Reviewer attendu :** expert Flutter render/layout indépendant, idéalement

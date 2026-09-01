@@ -60,8 +60,10 @@ delegate de mesure sont écartés.
   texte et `O(P log C)` pour `P` placeholders monotones.
 - Un child non monotone garde une terminaison déterministe et un candidat
   réellement testé comme sûr ; aucun optimum global n'est promis.
-- Tous les `TextPainter` temporaires sont disposés en `finally`. Les wrappers et
-  le paragraphe possédés sont disposés par leur owner.
+- Tous les `TextPainter` temporaires lean sont disposés en `finally`. Le spike
+  historique vérifie aussi le disposal de son paragraphe et de son ancien
+  wrapper inline ; le disposal du nouveau wrapper zéro reste à prouver au lot
+  10.
 - Une référence typographique zéro et les runs inline de taille zéro produisent
   des facteurs finis, sans division par zéro.
 
@@ -70,19 +72,20 @@ delegate de mesure sont écartés.
 Le spike ne cherche pas une mesure universelle d'un widget arbitraire. Il
 valide un fallback interne volontairement approximatif :
 
-- wet extrait, layoutte, peint, transforme, hit-teste et expose le vrai child
-  inline automatiquement ; le child peut être wet-only ;
+- wet layoutte réellement un child wet-only sans métrique manuelle : le child
+  mesure `12 × 8` et son wrapper mesure `12 × 6` ;
 - le wrapper interne renvoie `Size.zero`, baseline zéro et zéro pour les quatre
   intrinsics pendant dry/intrinsic ; il n'appelle aucune métrique du child ;
 - un child témoin qui lève sur dry layout, dry baseline et chacune des quatre
-  intrinsics ne reçoit aucun de ces appels ;
-- les dimensions zéro sont fournies 1:1 au `TextPainter`, dans l'ordre des
-  placeholders.
+  intrinsics ne reçoit aucun de ces appels.
 
 Cette approximation peut modifier largeur, hauteur de ligne, coupure, baseline
 et candidat par rapport au wet. Elle est acceptée comme solution anti-crash
 lean, pas comme parité géométrique. Elle ne crée aucun paramètre public de
-placeholder.
+placeholder. Le test archivé ne contient qu'un `WidgetSpan` : il ne prouve ni
+paint, transform, hit test ou sémantique du nouveau wrapper, ni cardinalité et
+ordre de plusieurs placeholders. Ces propriétés restent des critères du lot
+10.
 
 ## Provenance et historique conservé
 
@@ -168,14 +171,23 @@ Le probe lazy vérifie aussi la replacement `LayoutBuilder` avec descendant
 wet-only, les quatre intrinsics avant/après wet, contraintes alternatives,
 lifecycle `initState`/`dispose`, absence de publication dry et égalité du
 fallback répété. Le probe WidgetSpan vérifie les six métriques sèches zéro et le
-wet réel. Un probe indépendant supplémentaire a couvert contraintes
-tight/loose, axes infinis, scaler non linéaire, maxLines, texte vide/référence
-zéro, exception de scaler, paint, hit et sémantique, sur les deux pins, sans
-nouveau crash ou violation sérieuse.
+wet réel minimal décrit ci-dessus. Les deux autres tests lean comparent les
+quatre intrinsics du chemin texte et vérifient qu'une référence typographique
+zéro reste finie et sans exception. Les compteurs vérifient aussi que les
+painters temporaires lean sont tous disposés.
+
+Aucun probe indépendant non archivé n'est traité comme une preuve de ce gate.
+En particulier, tight/loose exhaustif, axes infinis, scaler non linéaire et
+`maxLines` combinés à la frontière lean, exception de scaler, paint, transform,
+hit test, sémantique et ordre multi-placeholder restent à démontrer par les
+lots produit concernés.
 
 ### Mutants
 
-Les **15/15 mutants** sont tués avec exit 1 sur les deux pins :
+Les **15/15 mutants** sont tués avec exit 1 sur les deux pins. Les onze premiers
+portent sur le spike historique ; les quatre mutants `lean_*` portent sur le
+contrat révisé. Les mutants historiques de transform/disposal ne sont pas une
+preuve du nouveau wrapper WidgetSpan lean.
 
 | Mutant | Régression détectée |
 | --- | --- |
@@ -221,15 +233,18 @@ un widget.
    dry/wet pour ce cas.
 3. Le fallback WidgetSpan ne reproduit pas la baseline, la hauteur ou la largeur
    intrinsèque du child. Il vise un résultat fini et sans crash.
-4. `invokeLayoutCallback` est public au sens Dart mais annoté `@protected`. Son
+4. Le mini-probe WidgetSpan ne prouve pas paint, transform, hit test, sémantique,
+   sélection, disposal propre au nouveau wrapper, duplication ou ordre de
+   plusieurs placeholders. Le lot 10 doit fournir ces preuves.
+5. `invokeLayoutCallback` est public au sens Dart mais annoté `@protected`. Son
    usage reste borné aux sous-classes pendant wet et doit être revérifié à chaque
    mise à jour Flutter.
-5. La preuve de baseline du paragraphe porte sur l'alphabétique. Les alignements
+6. La preuve de baseline du paragraphe porte sur l'alphabétique. Les alignements
    inline historiques sont couverts, sans promesse universelle pour un child
    arbitraire.
-6. La recherche logarithmique suppose la monotonie pour l'optimum. Un child non
+7. La recherche logarithmique suppose la monotonie pour l'optimum. Un child non
    monotone reçoit seulement la garantie sûr/déterministe/borné.
-7. Le spike n'est pas une implémentation produit et ne ferme aucune issue à lui
+8. Le spike n'est pas une implémentation produit et ne ferme aucune issue à lui
    seul. Les lots 9 et 10 doivent encore fournir tests rouges/verts, lifecycle,
    sélection, sémantique, compatibilité et revue indépendante.
 
@@ -239,7 +254,9 @@ un widget.
 2. Lot 9 : livrer texte simple/riche sans WidgetSpan, intrinsics exacts hors
    overflow replacement, fallback texte minimum documenté pour la replacement
    lazy et aucune nouvelle API.
-3. Lot 10 : ajouter les wrappers WidgetSpan, wet automatique complet et six
-   métriques non-wet zéro documentées, sans demander de dimensions à l'appelant.
+3. Lot 10 : ajouter les wrappers WidgetSpan, conserver le wet automatique
+   minimal et les six métriques non-wet zéro, puis prouver paint, transform, hit
+   test, sémantique, disposal et ordre multi-placeholder, sans demander de
+   dimensions à l'appelant.
 4. Conserver les gates minimum/haute, les mutants de branche et de placeholder,
    et une revue render indépendante avant intégration.
