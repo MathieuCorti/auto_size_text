@@ -2,18 +2,24 @@
 
 Date : 2026-09-01
 
-Tête revue : `b32100fc1763266211d90748be61e7ed736c4101`
+Tête revue : `577b83ff38fd8456fdb5e3458a479e84f22cc4e5`
 
-Delta produit et régressions relu : `69b9ff3..b32100f`
+Delta initial relu : `69b9ff3..b32100f`
+
+Corrections revalidées :
+
+- `6bd7aeb` — couverture de la conservation du rapport et de l'identité ;
+- `20a530a` — comparaison des contrôleurs par identité ;
+- `577b83f` — compte rendu des corrections.
 
 Worktree exclusif :
 `/private/tmp/auto-size-text-review-groups-projection`
 
 ## Verdict
 
-**ACCEPTÉ**
+**REJETÉ — P1 bloquant dans l'oracle de régression**
 
-La projection de groupe respecte le contrat mathématique du lot 5 : seul
+Le produit à cette tête respecte le contrat mathématique du lot 5 : seul
 `P = U.scale(L)` est publié, `G` est le minimum des rapports publiés, et le
 candidat rendu est
 
@@ -29,14 +35,50 @@ La dichotomie reste en `O(log C)` sur un domaine régulier virtuel d'environ
 proportionnelle à ce domaine, ne scanne pas les candidats et ne crée ni ne
 relance aucun `TextPainter`.
 
-Aucun finding P0, P1, P2 ou P3 n'a été trouvé.
+La correction par `identical` transfère correctement un membre entre deux
+contrôleurs distincts mais égaux par `operator ==`. Elle ne modifie aucune
+règle `L/P/G/R` et ajoute seulement une comparaison `O(1)` au cycle de vie.
+
+En revanche, le nouveau test permanent de sortie invalide ne prouve pas la
+conservation non transactionnelle de `P_A = 50`. Il change le scaler de A et
+laisse A republier 50 avant de retirer le limiteur et d'observer G. Un rollback
+cohérent qui retire/réinscrit A et remet son cache de publication à `null`
+reste donc vert. Le probe black-box discriminant, qui garde A strictement
+inchangé et fait observer G par C avant qu'A puisse republier, devient rouge
+sur les deux SDK : C rend 70 au lieu de 50.
 
 ## Findings ordonnés
 
 - P0 : aucun.
-- P1 : aucun.
+- P1 : **l'oracle permanent de sortie invalide masque un rollback cohérent du
+  rapport publié** — `test/group_constraints_test.dart:642-652`.
 - P2 : aucun.
 - P3 : aucun.
+
+### P1 — conservation non transactionnelle insuffisamment verrouillée
+
+Après l'`ArgumentError`, le test remplace à la ligne 642 le scaler invalide de
+A par `TextScaler.noScaling`, pompe A et vérifie même sa nouvelle projection
+avant de retirer B aux lignes 647-652. Cette pompe republie `P_A = 50` si le
+cache a été remis à `null` par un rollback. L'observation finale de C à 50 ne
+distingue alors plus l'état correctement conservé de l'état restauré puis
+republié.
+
+Preuve par mutants temporaires :
+
+- rollback incomplet `remove/register` : le test permanent est rouge, C vaut
+  70 au lieu de 50 ;
+- rollback cohérent `remove/register` plus cache publié remis à `null` : le
+  test permanent reste vert sur Flutter 3.41.0 et 3.47.2 ;
+- le même rollback cohérent est rouge sur le probe black-box strict aux deux
+  versions, C vaut 70 au lieu de 50.
+
+La régression devrait garder A inchangé après l'erreur, placer C avant A dans
+l'ordre de layout et isoler B dans son propre `StatefulBuilder`. Après retrait
+de B seulement, une pompe de retrait puis une pompe synchrone doivent montrer
+C à 50 et aucune frame supplémentaire planifiée. Cette séquence observe le
+rapport conservé avant toute republication possible d'A et tue les deux formes
+du rollback. Aucun correctif n'est produit par cette contre-revue.
 
 ## Preuve formelle du flux `L/P/G/R`
 
@@ -95,6 +137,17 @@ Il n'entre ni dans le cache de publication, ni dans la map, ni dans le calcul
 de `G`. Cette séparation exclut par construction une réduction en cascade
 causée par la republication de `R`.
 
+### L'identité du groupe ne change pas la projection
+
+`didUpdateWidget` compare maintenant les deux contrôleurs avec
+`!identical(oldWidget.group, widget.group)`. Cette décision ne s'exécute que
+lors de la mise à jour du widget : elle retire le membre de l'ancienne map,
+l'inscrit dans la nouvelle et invalide son cache de publication. Elle ne lit
+ni ne transforme `L`, `P`, `G`, `R`, le domaine ou le scaler. `identical` est
+une opération constante ; les dichotomies et leurs bornes restent donc
+inchangées. La recherche dans `lib/` ne trouve aucune autre comparaison
+d'identité entre deux contrôleurs de groupe.
+
 ## Domaines, scalers et métriques vérifiés
 
 | Cas | Preuve observée |
@@ -110,7 +163,7 @@ causée par la republication de `R`.
 | Plateau classique | `U(x)=min(x,20)` conserve `L=R=20` malgré la même racine pour 20 et 30 |
 | Comparaison exacte | `G+1 ULP` est rejeté ; l'égalité exacte est acceptée |
 | Référence racine zéro | fixture RichText `F=20`, run enfant 100, racine/box mutantes `0/120`, résultat exigé `0/70` |
-| Sortie invalide en projection | `P=50` est publié avant l'erreur à 20, NaN n'entre jamais dans les rapports, puis le voisin reste borné à 50 après retrait de la limite 15 |
+| Sortie invalide en projection | le produit conserve `P=50` publié avant l'erreur à 20 et refuse NaN ; la nouvelle régression permanente ne discrimine toutefois pas un rollback suivi d'une republication |
 | Replacement | dépend uniquement du fit local ; l'échec à atteindre `G` n'est pas traité comme un overflow |
 
 Le run enfant RichText suit la composition du lot 4 : pour une référence
@@ -141,14 +194,30 @@ ce chemin ne contient qu'une dichotomie par indices et un accès virtuel
 `_CandidateSet[index]` ; les seules listes de `_CandidateSet` concernent le
 snapshot fini des presets fournis par l'appelant.
 
-Le probe d'erreur non transactionnelle utilisait A avec
-`D={10,20,30,40,50}`, `P_A=50`, B imposant 15 et C avec `{50,70}`. La
-projection de A rencontre NaN à 20 après la publication finie. Après retrait
-de B, sans changer la configuration de A, C rend 50 et non 70. Le rapport fini
-de A a donc été conservé, aucune sortie invalide n'a été stockée et aucun
-rollback spéculatif n'a été effectué.
+Le probe d'erreur non transactionnelle revalidé utilise trois membres dans cet
+ordre de layout : C observateur avec `D_C={50,70}`, A invalide avec
+`D_A={10,20,30,40,50}`, puis B limiteur à 25 dans son propre
+`StatefulBuilder`. La première frame publie C=70, A=50 et B=25. La pompe
+suivante fait rencontrer à A une sortie invalide pour le candidat projeté 20 ;
+l'`ArgumentError` est capturé explicitement par `tester.takeException()`.
 
-Les trois probes passent à l'identique sur Flutter 3.41.0 et 3.47.2.
+La suite ne change ni le widget, ni le scaler, ni le domaine, ni les
+contraintes d'A. Elle retire seulement B, pompe ce retrait, puis effectue une
+unique pompe synchrone. C étant disposé avant A, il observe le minimum avant
+qu'un A dont le cache aurait été annulé puisse republier :
+
+- produit intact : le rapport A=50 a survécu, C rend 50 et aucune frame
+  supplémentaire n'est planifiée ;
+- rollback cohérent : A est réinscrit à `+infinity`, C rend 70, puis seulement
+  A republie 50 et demande une nouvelle vague.
+
+Le probe passe avec le produit intact et devient rouge, à 70 au lieu de 50,
+avec le rollback cohérent sur les deux SDK. Il confirme donc le comportement
+du produit tout en démontrant que l'oracle permanent actuel ne le verrouille
+pas.
+
+Les trois probes initiaux et ce probe strict passent à l'identique sur Flutter
+3.41.0 et 3.47.2 avec le produit intact.
 
 ## Mutants temporaires
 
@@ -160,10 +229,15 @@ Tous les mutants ont été retirés et le diff produit a ensuite été vérifié
 | Republication de `U.scale(R)` | presets disjoints stables | voisin rendu `10` au lieu de `30` |
 | Recherche linéaire | probe de 1 024 candidats | `1 524` évaluations pour deux sessions, borne attendue `<=22` |
 | Tolérance effective autour de `G` | excès d'un ULP | `20.000000000000004` accepté au lieu du rendu 10 |
+| Comparaison de groupes par `!=` | transfert entre deux contrôleurs égaux mais non identiques | `20/20/40` au lieu de `20/40/20` |
+| Rollback cohérent du rapport et du cache après erreur | probe black-box strict | C rend `70` au lieu de `50` sur les deux SDK |
 
 Ces rouges discriminent respectivement la perte de la borne locale, la
 confusion `P/R`, la régression de complexité et la réutilisation illégale de la
-tolérance du domaine dans la comparaison effective.
+tolérance du domaine dans la comparaison effective. Les deux derniers valident
+la correction d'identité et révèlent la lacune de l'oracle permanent de sortie
+invalide. À titre de contrôle, ce dernier mutant reste vert dans le test
+permanent ajouté par `6bd7aeb` sur les deux SDK.
 
 ## Matrice exécutée
 
@@ -176,20 +250,23 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 | SDK | Analyse fatale `lib test` | Ciblés lot 5 | Suite complète | Probe privé |
 |---|---:|---:|---:|---:|
-| 3.41.0 | aucun diagnostic | 60/60 | 114/114 | 3/3 |
-| 3.47.2 | aucun diagnostic | 60/60 | 114/114 | 3/3 |
+| 3.41.0 | aucun diagnostic | 61/61 | 115/115 | 4/4 |
+| 3.47.2 | aucun diagnostic | 61/61 | 115/115 | 4/4 |
 
 La suite ciblée comprend les contraintes de groupe, le cycle de vie, le
 builder, les presets, les scalers, RichText, replacement, le cycle de vie des
 painters et le leak tracking. Les deux résolutions de dépendances ont été
 effectuées proprement avec le SDK exécuté avant ses tests.
 
-Les quatre mutants ont été exécutés sur Flutter 3.47.2 ; ils échouent dans les
-assertions métier attendues, sans erreur de compilation ou de harness.
+Les quatre mutants mathématiques/performance initiaux et le mutant d'identité
+ont été exécutés sur Flutter 3.47.2 ; ils échouent dans les assertions métier
+attendues, sans erreur de compilation ou de harness. Le rollback cohérent a
+été exécuté sur les deux SDK : le test permanent reste vert mais le probe
+strict devient rouge dans les deux environnements.
 
 ## Périmètre lu intégralement
 
-Tous les fichiers du delta `69b9ff3..b32100f` ont été lus en entier :
+Tous les fichiers du delta initial `69b9ff3..b32100f` ont été lus en entier :
 
 - `lib/src/auto_size_group.dart` ;
 - `lib/src/auto_size_text.dart` ;
@@ -200,6 +277,14 @@ Tous les fichiers du delta `69b9ff3..b32100f` ont été lus en entier :
 - `test/group_test.dart` ;
 - `test/preset_font_sizes_test.dart` ;
 - `test/text_scaler_test.dart`.
+
+Les quatre fichiers touchés par les corrections `6bd7aeb..577b83f` ont aussi
+été relus intégralement :
+
+- `lib/src/auto_size_text.dart` ;
+- `test/group_constraints_test.dart` ;
+- `test/group_test.dart` ;
+- `maintenance/implementation/lot-5-groups.md`.
 
 Les oracles `maintenance/decisions/group-projection-oracle.md` et
 `maintenance/decisions/group-lifecycle-adversarial-oracle.md`, ainsi que la
@@ -224,15 +309,20 @@ Les points applicables de la checklist ont été vérifiés :
   projection et compteur logarithmique ;
 - état et race : rapport local mémorisé, minimum synchrone, notification
   coalescée, absence de republication pendant la vague ;
-- cycle de vie : inscription, groupe identique, transfert, passage à `null`,
-  retrait et dispose couverts par les régressions ciblées ;
+- cycle de vie : inscription, groupe identique, contrôleurs distincts égaux,
+  transfert, passage à `null`, retrait et dispose couverts par les régressions
+  ciblées et le mutant `!=` ;
 - erreurs : validation avant publication et frontière non transactionnelle
   après publication ;
 - ressources : aucun painter de projection, tests lifecycle/leak verts ;
 - qualité des oracles : mutants discriminants, métrique RichText réelle,
-  comparaison exacte et deux SDK exacts.
+  comparaison exacte et deux SDK exacts ; lacune bloquante identifiée sur la
+  conservation non transactionnelle après erreur.
 
 Aucune zone du périmètre demandé ne reste invérifiée. Les probes, mutants et
-fichiers temporaires ont été supprimés. Avant l'ajout de ce rapport,
+fichiers temporaires ont été supprimés. Avant la mise à jour de ce rapport,
 `git status`, `git diff --check` et le diff des fichiers produit/tests étaient
-vides ; le commit de revue ne contient donc que ce document.
+vides ; le commit de contre-revue ne contient donc que ce document. Le verdict
+`ACCEPTÉ` de la tête `b32100f` est supersédé par le présent verdict : le produit
+revalidé est correct, mais la correction de l'oracle est insuffisante pour
+autoriser le lot.
