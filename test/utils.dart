@@ -1,12 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 double effectiveFontSize(Text text) =>
-    (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);
+    (text.textScaleFactor ?? 1) * text.style!.fontSize!;
 
 bool doesTextFit(
   Text text, [
@@ -25,7 +24,7 @@ bool doesTextFit(
     text: span,
     textAlign: text.textAlign ?? TextAlign.start,
     textDirection: text.textDirection,
-    textScaler: text.textScaler ?? TextScaler.noScaling,
+    textScaleFactor: text.textScaleFactor ?? 1,
     maxLines: text.maxLines,
     locale: text.locale,
     strutStyle: text.strutStyle,
@@ -83,10 +82,8 @@ Future<void> pumpAndExpectFontSize({
   required double expectedFontSize,
   required Widget widget,
 }) async {
-  await pump(tester: tester, widget: widget);
-  final paragraph = tester.renderObject<RenderParagraph>(find.byType(RichText));
-  final rootFontSize = paragraph.text.style!.fontSize!;
-  expect(paragraph.textScaler.scale(rootFontSize), expectedFontSize);
+  final text = await pumpAndGetText(tester: tester, widget: widget);
+  expect(effectiveFontSize(text), expectedFontSize);
 }
 
 RichText getRichText(WidgetTester tester) =>

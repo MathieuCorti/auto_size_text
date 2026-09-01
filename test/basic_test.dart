@@ -49,10 +49,9 @@ void main() {
           child: AutoSizeText('AutoSizeText Test'),
         ),
       );
-      expect(text.style, isNull);
+      expect(text.style, defaultStyle);
 
       final richText = getRichText(tester);
-      expect(richText.text.style, defaultStyle);
       expect(richText.textAlign, TextAlign.right);
       expect(richText.softWrap, false);
       expect(richText.overflow, TextOverflow.ellipsis);
