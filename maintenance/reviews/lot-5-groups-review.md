@@ -12,21 +12,24 @@ Correctifs contre-revus :
 
 - `b159cc5` — régressions de rétention et d'identité ;
 - `cbd3641` — comparaison des contrôleurs par identité ;
-- `5d3fb6a5585921dabd134b0c8a5f1ff87d4b897e` — journal corrigé.
+- `5d3fb6a5585921dabd134b0c8a5f1ff87d4b897e` — journal corrigé ;
+- `581b8506797fed9ac17dd65dd49dbc6ed3463abf` — oracle strict de rétention ;
+- `d1a5aae7d2cdd72a9ca465d8e81813c687423ac6` — journal strict.
 
-Plages revues : `c9a1adc..b32100f`, puis `fb306d0..5d3fb6a`
+Plages revues : `c9a1adc..b32100f`, `fb306d0..5d3fb6a`, puis
+`22d0ce3..d1a5aae`.
 
 Périmètre : unités logique/effective `L/P/G/R`, projection dans le domaine de
 chaque membre, scalers linéaires/non linéaires/plateaux, replacement, erreurs,
 publication, `didUpdateWidget`, transfert/retrait/dispose, coalescence de
 microtâches, ordre de layout, convergence, complexité, compatibilité des lots
-2 à 4 et qualité des preuves rouges/vertes. La première revue puis la
-contre-revue n'ont écrit aucun correctif produit ou test ; le présent rapport
-mis à jour est leur seul livrable.
+2 à 4 et qualité des preuves rouges/vertes. Les revues n'ont écrit aucun
+correctif produit ou test ; le présent rapport mis à jour est leur seul
+livrable.
 
 ## Verdict
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
 Le chemin produit nominal respecte l'oracle : chaque membre publie
 `P_i = U_i(L_i)`, le groupe calcule `G = min(P_i)`, puis le rendu projette le
@@ -36,71 +39,36 @@ non linéaires, plateaux, remplacement local, valeurs invalides, suppression,
 dispose et coalescence passent sur les deux SDK exacts. La recherche reste
 logarithmique et ne matérialise pas les grandes grilles.
 
-Le P2 produit est clos : `didUpdateWidget` compare les contrôleurs avec
-`identical`, et sa régression couvre transfert, transition ultérieure,
-assertions et frame témoin sur les deux SDK. Le P1 de preuve reste en revanche
-ouvert. Le test renforcé tue le rollback partiel qui conserve le cache, mais un
-rollback transactionnel qui réinitialise à la fois le rapport et le cache
-survit sur Flutter 3.41.0 et 3.47.2. L'exigence bloquante 10 de l'oracle n'est
-donc toujours pas entièrement prouvée. Aucun P0, P2 restant ou P3 actionnable
-n'a été trouvé.
+Le P1 de preuve est désormais clos : le nouvel oracle garde A strictement
+inchangé, retire seulement B et observe C avant toute republication possible
+de A. Le rollback complet `_remove/_register` avec cache remis à `null`, vert
+sur l'ancien test, devient rouge avec `C=70` au lieu de 50 sur Flutter 3.41.0
+et 3.47.2. Le P2 produit reste clos : `didUpdateWidget` compare les contrôleurs
+avec `identical`, et sa régression couvre transfert, transition ultérieure,
+assertions et frame témoin sur les deux SDK. Aucun P0, P1 restant, P2 restant
+ou P3 actionnable n'a été trouvé.
 
 ## Statut des findings
 
-### P1 ouvert — la récupération republie 50 avant l'observation du rollback
+### P1 clos — le nouvel oracle observe le rapport avant republication
 
 **Fichiers :**
 
 - `test/group_constraints_test.dart:577-653` ;
-- `maintenance/implementation/lot-5-groups.md:59-64` ;
+- `maintenance/implementation/lot-5-groups.md:59-69` ;
 - contrat : `maintenance/decisions/group-lifecycle-adversarial-oracle.md`,
   contrainte d'acceptation 10.
 
-Le test initial publiait `P_A=50`, puis gardait un membre B dont l'unique
-candidat publiait `P_B=25`. La projection de A rencontre ensuite `NaN` à 20 et
-lève bien `ArgumentError`. Pour la récupération, le test remplace le scaler de
-A par l'identité tout en laissant B dans le groupe, puis attend `R_A=20`.
+L'oracle initial publiait `P_A=50`, laissait B imposer `P_B=25`, puis
+rencontrait `NaN` pendant la projection de A. Sa récupération changeait le
+scaler de A avant de retirer B. Même après un rollback de A vers `+∞`, B
+maintenait d'abord `G=25`, puis A republiait 50 : le résultat final ne prouvait
+pas la rétention. Le premier renforcement ajoutait C de domaine `{70,50}` et
+tuait un rollback partiel qui conservait le cache, mais pas une annulation
+cohérente du rapport et du cache.
 
-Cette dernière valeur ne dépend pas de la conservation de `P_A`. Si le rapport
-50 est correctement retenu, `G=min(50,25)=25` et A rend 20. Si l'exception
-annule illégalement le rapport de A vers `+∞`, B impose encore
-`G=min(+∞,25)=25` et A rend également 20. L'assertion est donc tautologique
-pour la propriété qu'elle prétend établir. Le journal affirme à tort que ce
-20 « permet » de prouver la rétention. C'était le P1 initial.
-
-La revue a vérifié ce point avec une archive temporaire propre de `b32100f`.
-Un mutant limité au bloc de projection exécutait, dans le `catch`,
-`group._remove(this); group._register(this); rethrow;` sans réinitialiser le
-cache `_publishedEffectiveFontSize`. Il remplaçait ainsi le rapport fini par
-`+∞`, exactement en violation de l'oracle. Le test permanent inchangé est
-resté vert :
-
-```text
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub \
-  --reporter expanded test/group_constraints_test.dart \
-  --plain-name 'should reject an invalid scaler result reached during projection'
-
-1/1, All tests passed
-```
-
-Le correctif ajoute un troisième membre C de rapport 70 et de domaine
-`{70,50}`, puis retire B et exige A=50/C=50. Il tue bien, sur les deux SDK, le
-mutant partiel `_remove(this); _register(this); rethrow;` qui remplace le
-rapport par `+∞` mais conserve `_publishedEffectiveFontSize=50` : le cache
-empêche toute republication et C rend 70.
-
-Cependant, le test rétablit d'abord le scaler de A :
-
-```dart
-update(() => scaler = TextScaler.noScaling);
-await tester.pump();
-// ...
-update(() => showLimiter = false);
-```
-
-Cette reconstruction rend le témoin non discriminant pour un rollback
-transactionnel complet. La contre-revue a utilisé dans le `catch` :
+La contre-revue a donc utilisé exactement ce rollback complet dans le chemin
+d'exception :
 
 ```dart
 group._remove(this);
@@ -109,42 +77,46 @@ _publishedEffectiveFontSize = null;
 rethrow;
 ```
 
-Au pump de récupération, A recalcule `P_A=50`, voit le cache nul et republie
-50 avant le retrait de B. A et C rendent donc ensuite 50 exactement comme sur
-le produit intact. Le test permanent final reste vert 1/1 avec ce mutant sous
-Flutter 3.41.0 et 3.47.2. C'est un rollback naturel à tester : remettre le
-rapport à `⊥` et invalider son cache sont les deux moitiés cohérentes d'une
-annulation transactionnelle.
+Dans une archive de `5d3fb6a`, l'ancien test reste vert 1/1 avec ce mutant sur
+les deux SDK. Le test de `581b850` ne modifie plus A : l'observateur C et A
+sont des enfants constants hors du `StatefulBuilder`; son unique `setState`
+remplace seulement B par `SizedBox.shrink`. C précède A dans le `Column`. Après
+l'erreur, le rollback mutant laisse donc `{P_C=70, P_A=+∞}` quand B est retiré.
+À la frame discriminante, C rend 70 avant qu'A puisse republier 50. Le produit
+intact conserve `P_A=50`, et C rend 50.
 
-L'oracle ferme explicitement cette échappatoire : il demande de retirer le
-voisin « sans reconstruire A avec une nouvelle configuration », puis
-d'observer le rapport fini 50, ou d'utiliser un probe privé si la gestion de
-`ErrorWidget` rend la preuve black-box trop fragile. Le journal affirme donc
-encore une fermeture plus large que celle réellement obtenue.
+Le test consomme explicitement l'`ArgumentError` attendu après la première
+pompe, exige ensuite deux fois l'absence d'exception, puis vérifie C et
+`hasScheduledFrame == false`. Avec le mutant, le seul échec est l'attente de C,
+`Expected: 50, Actual: 70.0`, sur les deux pins. Il n'y a ni exception
+incontrôlée ni frame différée qui masque la preuve.
 
-**Impact :** une future implémentation de rollback complet passerait tous les
-tests et pourrait être déclarée conforme, tout en effaçant illégalement le
-rapport partagé au moment de l'exception.
-
-**Correction attendue :** retirer B sans changer préalablement le scaler de A
-et observer C avant toute republication possible de A, avec ordre de layout
-contrôlé et sous-arbre du limiteur isolé. Une instrumentation privée temporaire
-du coordinateur est préférable si ce montage dépend trop du scheduling. Le
-gate doit tuer les deux mutants : cache conservé **et** cache réinitialisé.
-
-Commandes exactes du mutant complet survivant :
+Commandes exactes, exécutées après `flutter pub get --no-example` dans chaque
+archive :
 
 ```text
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub \
-  --reporter expanded test/group_constraints_test.dart \
+cd /private/tmp/auto-size-groups-old-PROHVi
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
   --plain-name 'should reject an invalid scaler result reached during projection'
 
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub \
-  --reporter expanded test/group_constraints_test.dart \
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+
+cd /private/tmp/auto-size-groups-new-dKILp1
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
+  --plain-name 'should reject an invalid scaler result reached during projection'
+
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  test/group_constraints_test.dart \
   --plain-name 'should reject an invalid scaler result reached during projection'
 ```
+
+Résultats avec le même mutant : ancien oracle `5d3fb6a`, 1/1 vert sur chaque
+SDK ; oracle strict `d1a5aae`, rouge `C=70.0` contre 50 sur chaque SDK. Le
+finding est clos sans modification produit.
 
 ### P2 clos — transfert fondé sur l'identité des contrôleurs
 
@@ -152,7 +124,7 @@ Commandes exactes du mutant complet survivant :
 
 - `lib/src/auto_size_text.dart:250-258` ;
 - effet observable dans `lib/src/auto_size_group.dart:9-20` ;
-- régression dans `test/group_test.dart:214-292`.
+- régression dans `test/group_test.dart:217-294`.
 
 `AutoSizeGroup` est une classe publique sous-classable. Le candidat initial
 utilisait :
@@ -216,14 +188,13 @@ contrôleur concurrente.
 Commandes mutantes exactes :
 
 ```text
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub \
-  --reporter expanded test/group_test.dart \
+cd /private/tmp/auto-size-groups-identity-gbULQe
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  test/group_test.dart \
   --plain-name 'should transfer between equal groups using controller identity'
 
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub \
-  --reporter expanded test/group_test.dart \
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  test/group_test.dart \
   --plain-name 'should transfer between equal groups using controller identity'
 ```
 
@@ -249,8 +220,8 @@ Les sorties de scaler utilisées pour `P` et pour chaque prédicat de projection
 sont validées finies et non négatives, avec canonicalisation du seul zéro.
 Une erreur avant publication conserve l'ancien rapport du même groupe ; une
 erreur après publication conserve le nouveau rapport fini. Le code produit
-satisfait ces deux frontières. La preuve permanente ne tue toutefois que le
-rollback qui oublie de réinitialiser le cache, conformément au P1 ouvert.
+satisfait ces deux frontières. L'oracle permanent strict tue désormais aussi
+le rollback cohérent qui réinitialise le cache, conformément au P1 clos.
 
 ### État, microtâches et cycle de vie
 
@@ -329,13 +300,15 @@ deux rouges exclusivement lot 5 : domaine+scaler et preset disjoint.
   test/preset_font_sizes_test.dart
 ```
 
-## Matrice indépendante finale sur `5d3fb6a`
+## Matrice indépendante finale sur `d1a5aae`
 
 Toolchains exactes :
 
 ```text
 Flutter 3.41.0 • revision 44a626f4f0 • Dart 3.11.0
+engine cc8e596aa65130a0678cc59613ed1c5125184db4
 Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
+engine 1cf1c4773fb941c4c74a7f8bb144a8837596c0f4
 ```
 
 ### Flutter 3.47.2
@@ -343,39 +316,37 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 Exécuté dans `/private/tmp/auto-size-text-review-groups` :
 
 ```text
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check pub get --no-example
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter pub get --no-example
 
 cd example
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check pub get --enforce-lockfile
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check analyze --no-pub \
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter pub get --enforce-lockfile
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter analyze --no-pub \
   --fatal-infos --fatal-warnings
 
 cd ..
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/dart-sdk/bin/dart \
+/Users/mathieu/fvm/versions/3.47.2/bin/dart \
   format --output=none --set-exit-if-changed lib test example
 
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check analyze --no-pub \
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter analyze --no-pub \
   --fatal-infos --fatal-warnings lib test
 
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub --reporter compact \
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
   test/group_constraints_test.dart test/group_test.dart \
   test/group_builder_test.dart test/preset_font_sizes_test.dart \
   test/text_scaler_test.dart test/rich_text_test.dart \
   test/overflow_replacement_test.dart \
   test/text_painter_lifecycle_test.dart test/leak_tracking_test.dart
 
-/private/tmp/flutter-sdk-3.47.2/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub --reporter compact
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  test/text_painter_lifecycle_test.dart test/leak_tracking_test.dart
+
+/Users/mathieu/fvm/versions/3.47.2/bin/flutter test --no-pub \
+  --reporter compact
 ```
 
 Résultats : résolution racine et exemple réussies ; lock d'exemple inchangé ;
 26 fichiers formatés sans changement ; analyses package/tests et exemple sans
-diagnostic ; ciblés 61/61, dont neuf cas lifecycle/leak ; suite 115/115.
+diagnostic ; ciblés 61/61 ; lifecycle/leak explicites 9/9 ; suite 115/115.
 
 ### Flutter 3.41.0
 
@@ -383,53 +354,51 @@ La tête a été extraite dans un répertoire temporaire sans `.git`. Le lock ha
 de l'exemple a été mis de côté avant la résolution naturelle minimale.
 
 ```text
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check pub get --no-example
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter pub get --no-example
 
 cd example
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check pub get
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check analyze --no-pub \
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter pub get
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter analyze --no-pub \
   --fatal-infos --fatal-warnings
 
 cd ..
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check analyze --no-pub \
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter analyze --no-pub \
   --fatal-infos --fatal-warnings lib test
 
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub --reporter compact \
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
   test/group_constraints_test.dart test/group_test.dart \
   test/group_builder_test.dart test/preset_font_sizes_test.dart \
   test/text_scaler_test.dart test/rich_text_test.dart \
   test/overflow_replacement_test.dart \
   test/text_painter_lifecycle_test.dart test/leak_tracking_test.dart
 
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub --reporter compact
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  test/text_painter_lifecycle_test.dart test/leak_tracking_test.dart
 
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check pub downgrade --no-example
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  --reporter compact
 
-/private/tmp/flutter-sdk-3.41.0/flutter/bin/flutter \
-  --suppress-analytics --no-version-check test --no-pub --reporter compact
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter pub downgrade --no-example
+
+/Users/mathieu/fvm/versions/3.41.0/bin/flutter test --no-pub \
+  --reporter compact
 ```
 
 Résultats : 26 dépendances racine et 10 exemple résolues ; analyses sans
-diagnostic ; ciblés 61/61 ; suite avant downgrade 115/115 ; neuf dépendances
-abaissées ; suite après downgrade 115/115. Les cas lifecycle/leak sont inclus
-à la fois dans les ciblés et dans les deux suites complètes.
+diagnostic ; ciblés 61/61 ; lifecycle/leak explicites 9/9 ; suite avant
+downgrade 115/115 ; neuf dépendances abaissées ; suite après downgrade
+115/115.
 
 Contrôles complémentaires :
 
 ```text
-git diff --check fb306d0..5d3fb6a
+git diff --check 22d0ce3..d1a5aae
 git rev-parse HEAD
 git branch --show-current
 ```
 
-Résultat : diff propre ; tête exacte `5d3fb6a...` ; branche
+Résultat : diff propre ; tête exacte
+`d1a5aae7d2cdd72a9ca465d8e81813c687423ac6` ; branche
 `codex/review-groups`. Toutes les extractions parent/minimum, les mutants, les
 tests de probe, les `.dart_tool`, builds et locks racine générés ont été
 supprimés avant rédaction. Le lock d'exemple suivi n'a pas changé.
@@ -457,6 +426,12 @@ La contre-revue a relu intégralement chacun des quatre fichiers du delta
 2. `maintenance/implementation/lot-5-groups.md` ;
 3. `test/group_constraints_test.dart` ;
 4. `test/group_test.dart`.
+
+La revalidation finale a relu intégralement les deux fichiers du delta strict
+`22d0ce3..d1a5aae` :
+
+1. `test/group_constraints_test.dart` ;
+2. `maintenance/implementation/lot-5-groups.md`.
 
 Le contexte directement interactif a également été lu intégralement :
 
@@ -487,6 +462,6 @@ aucun défaut applicable trouvé. Les races/TOCTOU ont été examinées sur
 publication, coalescence, snapshot courant, transfert et dispose : le chemin
 nominal est propre et le P2 d'identité est clos. La disponibilité a été
 contrôlée par le domaine virtuel et la revue des allocations : aucun nouveau
-DoS actionnable. La qualité de la preuve d'exception laisse le P1 ci-dessus
-ouvert ; aucun autre finding n'est apparu. Aucune zone du diff n'est restée non
-vérifiée.
+DoS actionnable. La preuve d'exception stricte tue les rollbacks partiel et
+complet ; le P1 est clos. Aucun autre finding n'est apparu. Aucune zone du diff
+n'est restée non vérifiée.
