@@ -994,11 +994,7 @@ void main() {
                     text: revision.isEven ? 'MMMM' : 'NNNN',
                     children: <InlineSpan>[
                       WidgetSpan(
-                        child: SizedBox(
-                          key: sharedKey,
-                          width: 20,
-                          height: 10,
-                        ),
+                        child: SizedBox(key: sharedKey, width: 20, height: 10),
                       ),
                     ],
                   ),
