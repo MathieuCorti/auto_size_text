@@ -4,16 +4,28 @@ Date : 2026-09-01
 
 Branche revue : `codex/review-groups-lifecycle`
 
-Tête revue : `b32100fc1763266211d90748be61e7ed736c4101`
+Tête revue : `f52e0b700814497f5b86068160867146e3215923`
 
 Parent produit du lot : `c9a1adc006365feb3e1750069ca1e115c3f20237`
+
+Corrections revalidées : `74501688d4c86131478cf62353a59f41cfdf855d`,
+`2c3fc9076e4f1dbab789a1135b7506b65e8d04f0` et
+`f52e0b700814497f5b86068160867146e3215923`.
 
 ## Verdict
 
 **ACCEPTÉ**
 
 Aucun finding bloquant ou actionnable n'a été trouvé dans l'état, la
-coalescence, la convergence ou le cycle de vie du lot 5.
+coalescence, la convergence ou le cycle de vie du lot 5 après revalidation des
+trois commits correctifs.
+
+Le passage de `oldWidget.group != widget.group` à
+`!identical(oldWidget.group, widget.group)` ferme bien le défaut :
+`AutoSizeGroup` est sous-classable et deux contrôleurs distincts peuvent être
+égaux par `==` sans représenter la même appartenance. Le transfert se déclenche
+désormais pour ces deux identités, tandis qu'une mise à jour sur la même
+instance ne retire pas le membre et conserve son dernier `P` fini.
 
 Le marqueur pending est posé avant la planification et consommé au début du
 run. Les changements synchrones de `G` sont réellement coalescés en une seule
@@ -56,8 +68,9 @@ temporaires :
 | Publication synchrone `10/20 -> 30/40` | Deux écritures de rapport et deux changements successifs du minimum donnent exactement `1 schedule`, `1 run` et un callback pour chacun des trois membres courants. La frame de synchronisation puis la frame témoin n'ajoutent aucun événement. |
 | Snapshot au run | Un membre inscrit après l'appel réel à `scheduleMicrotask`, mais avant son exécution, apparaît exactement une fois dans les callbacks. Il serait absent d'un snapshot capturé à la planification. |
 | Revalidation par membre | Le probe retire un second membre monté après la création du snapshot mais pendant le premier callback. Le second membre n'est pas rappelé. |
-| Transfert `g1 -> g2` avec vagues coalescées | Le membre mobile ne reçoit aucun callback de `g1`, reçoit celui de `g2` lorsqu'il y est encore inscrit, et les survivants de chaque groupe sont rappelés une seule fois. |
-| Passage `g2 -> null` pendant une époque pending | Le retrait et les variations synchrones de `G2` partagent une vague. Le membre mobile n'est pas rappelé ; les deux survivants le sont. |
+| Transfert `g1 -> g2` entre contrôleurs égaux mais non identiques | Le membre mobile est retiré de `g1`, inscrit à `+infinity` dans `g2`, y republie `P=20`, ne reçoit aucun callback de `g1` et reçoit exactement celui de `g2`. Les tailles passent à `20/40/20`. |
+| Transition de `P` après transfert | Sans nouveau changement d'appartenance, `P=20 -> 30` produit une écriture, un schedule, un run et deux callbacks dans `g2`; les tailles restent `30/40/20` selon les domaines. |
+| Passage `g2 -> null` pendant une époque pending | Le retrait et la remontée de `G2` partagent une vague. Le membre mobile n'est pas rappelé ; le survivant l'est une fois et remonte à 40. |
 | Dispose avant microtâche | Le minimum est retiré avant le run. La trace contient un retrait, un schedule, un run, un seul callback survivant et zéro callback pour l'état disposé. `tester.takeException()` reste nul. |
 | `didUpdateWidget`, même groupe | Une configuration invalide avant le nouveau `P` conserve l'ancien rapport fini 20, sans retrait, inscription, écriture ou notification. Le survivant reste projeté à 20. Après récupération à `P=30`, il y a une écriture, une vague et deux callbacks. |
 | `AutoSizeGroupBuilder` | L'instance `final _group` reste identique à travers les rebuilds et une remontée. |
@@ -76,23 +89,29 @@ membre. Le test de coalescence ajoutait un `ZoneSpecification` indépendant
 pour compter aussi les vraies microtâches planifiées et exécutées depuis
 `auto_size_group.dart`.
 
-Les sept scénarios du probe sont passés sur les deux SDK exacts :
+La contre-revue initiale avait sept scénarios. La revalidation corrective a
+ajouté cinq probes indépendants centrés sur les groupes égaux : transfert puis
+`null`, variation de `P` sans changement d'identité, rétention après erreur,
+snapshot/revalidation, dispose et compteur microtask/frame. Les deux séries
+sont passées sur les deux SDK exacts :
 
-| SDK | Révision Flutter | Dart | Probe |
-|---|---|---|---|
-| Flutter 3.41.0 | `44a626f4f0` | 3.11.0 | 7/7 |
-| Flutter 3.47.2 | `d3b14c8769` | 3.13.2 | 7/7 |
+| SDK | Révision Flutter | Dart | Initial | Revalidation corrective |
+|---|---|---|---|---|
+| Flutter 3.41.0 | `44a626f4f0` | 3.11.0 | 7/7 | 5/5 |
+| Flutter 3.47.2 | `d3b14c8769` | 3.13.2 | 7/7 | 5/5 |
 
-Cinq mutants indépendants ont ensuite été appliqués un par un, rendus rouges,
+Sept mutants indépendants ont ensuite été appliqués un par un, rendus rouges,
 puis restaurés immédiatement :
 
 | Mutant temporaire | Échec discriminant observé |
 |---|---|
+| Restaurer `oldWidget.group != widget.group` | La régression permanente obtient `20/20/40` au lieu de `20/40/20` lors du transfert entre contrôleurs égaux. |
 | Supprimer la garde `_notificationPending` | `schedule=2` au lieu de 1 pour une seule frame de publication. |
 | Capturer les listeners à la planification | Le membre ajouté avant le run reçoit 0 callback au lieu de 1. |
-| Supprimer `_listeners.containsKey(textState)` avant callback | Deux callbacks sont émis au lieu d'un après le retrait du second membre monté depuis le snapshot. |
+| Supprimer `_listeners.containsKey(textState)` avant callback | Le membre monté mais retiré après le premier callback est rappelé à tort depuis le snapshot. |
 | Republier explicitement `U(R)` | Les presets disjoints convergent vers le mauvais point fixe `10/10`; le second membre vaut 10 au lieu de 30. |
 | Retirer/réinscrire lors d'un `didUpdateWidget` dans le même groupe | Une mise à jour invalide fait remonter le survivant de 20 à 40 au lieu de conserver le dernier rapport fini. |
+| Retirer/réinscrire lors d'une erreur atteinte après publication | Le témoin `{70,50}` rend 70 au lieu de 50 après retrait du limiteur, ce qui prouve que le test renforcé observe réellement la rétention du `P=50` fini. |
 
 Ces rouges montrent que les probes testent le mécanisme réel, et pas seulement
 des frames idempotentes ou le comportement du harness. Tous les hooks, helpers,
@@ -116,6 +135,12 @@ le même groupe, le rapport n'est pas remis à `+infinity` pendant
 `didUpdateWidget`; une erreur avant la prochaine publication ne fait donc pas
 remonter les voisins à tort.
 
+Cette frontière repose exclusivement sur l'identité. L'audit de toutes les
+occurrences de `group` n'a trouvé aucune autre comparaison
+contrôleur-à-contrôleur : `initState` inscrit l'instance reçue, `dispose` retire
+de cette même instance, et `AutoSizeGroupBuilder` conserve son champ
+`final _group` pendant toute la vie du `State`.
+
 Le retrait du dernier minimum programme au plus une vague pour les survivants.
 Si le groupe devient vide, `_scheduleNotification` n'ajoute aucune nouvelle
 tâche ; une éventuelle tâche déjà pending ne capture aucun état membre et son
@@ -131,8 +156,8 @@ ni `TextPainter` orphelin, ni callback après dispose, ni exception de teardown.
 | `flutter pub get --no-example` | succès |
 | `dart format --output=none --set-exit-if-changed lib test example` | 26 fichiers, 0 changement |
 | `flutter analyze --no-pub --fatal-infos --fatal-warnings lib test` | aucun diagnostic |
-| ciblés groupes, presets, scalers, RichText, replacement, lifecycle et leak | 60/60 |
-| `flutter test --no-pub --reporter compact` | 114/114 |
+| ciblés groupes, presets, scalers, RichText, replacement, lifecycle et leak | 61/61 |
+| `flutter test --no-pub --reporter compact` | 115/115 |
 
 ### Flutter 3.41.0 / Dart 3.11.0
 
@@ -140,10 +165,8 @@ ni `TextPainter` orphelin, ni callback après dispose, ni exception de teardown.
 |---|---|
 | `flutter pub get --no-example` | succès |
 | `flutter analyze --no-pub --fatal-infos --fatal-warnings lib test` | aucun diagnostic |
-| mêmes ciblés | 60/60 |
-| suite complète sur résolution naturelle | 114/114 |
-| `flutter pub downgrade --no-example` | succès, 9 dépendances abaissées |
-| suite complète après downgrade, `--no-pub` | 114/114 |
+| mêmes ciblés | 61/61 |
+| suite complète sur résolution naturelle | 115/115 |
 
 La suite ciblée exacte était :
 
@@ -162,7 +185,7 @@ test/leak_tracking_test.dart
 ## Périmètre lu intégralement
 
 Le diff complet du lot, `c9a1adc..b32100f`, et chacun de ses onze fichiers ont
-été lus intégralement :
+été lus intégralement lors de la contre-revue initiale :
 
 - `lib/src/auto_size_group.dart` ;
 - `lib/src/auto_size_text.dart` ;
@@ -175,6 +198,14 @@ Le diff complet du lot, `c9a1adc..b32100f`, et chacun de ses onze fichiers ont
 - `test/group_test.dart` ;
 - `test/preset_font_sizes_test.dart` ;
 - `test/text_scaler_test.dart`.
+
+Le diff correctif complet, `c6c96da..f52e0b`, et ses quatre fichiers ont été
+relus intégralement pour cette revalidation :
+
+- `lib/src/auto_size_text.dart` ;
+- `test/group_test.dart` ;
+- `test/group_constraints_test.dart` ;
+- `maintenance/implementation/lot-5-groups.md`.
 
 Ont aussi été lus intégralement pour le contrat ou les vérifications croisées :
 
@@ -198,7 +229,7 @@ cryptographique. Injection, XSS, CSRF, IDOR, secrets et fuite d'information ne
 sont donc pas applicables.
 
 Les éléments applicables de la checklist ont été vérifiés pour chacun des onze
-fichiers du lot :
+fichiers du lot et des quatre fichiers du diff correctif :
 
 - **courses et état** : coalescence réelle schedule/run/callback, ordre
   retrait/recalcul/notification, pending consommé avant snapshot et limite lue
@@ -211,7 +242,7 @@ fichiers du lot :
   non bornée ; le recalcul du minimum reste `O(M)` comme prévu ;
 - **ressources** : aucun painter supplémentaire dans la projection, painters
   existants libérés dans `finally`, aucun état démonté rappelé ;
-- **qualité des tests** : probes capables de tuer cinq mutants, compteurs de
+- **qualité des tests** : probes capables de tuer sept mutants, compteurs de
   phase séparés et frames témoins explicites.
 
 Aucune zone du périmètre demandé n'est restée non vérifiée. La seule limite est
