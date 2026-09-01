@@ -2,36 +2,41 @@
 
 Date : 2026-09-02
 
-Tip audité : `033a938474d432a27bbc29cf30943c69991ee68a`
+Tip audité initial : `033a938474d432a27bbc29cf30943c69991ee68a`
+
+Tip revalidé : `eae3dfe` (`bb0ca91` oracle, `dbd2ea1` correctif,
+`eae3dfe` journal)
 
 Base du lot : `cc5da0eafcfd17130978041fa1bcc638dfa10d20`
 
 ## Verdict
 
-**NO-GO en l'état : un finding P2 reproductible reste ouvert.** Les chemins
-valides du lot passent la matrice Flutter 3.41.0 / 3.47.2 et les probes
-lifecycle demandés. En revanche, un `StateError` levé par l'implémentation
-utilisateur de `TextScaler.scale` traverse directement la frontière
-`RenderBox`. Flutter laisse alors son garde dry interne armé ; un second appel
-sur le même render object échoue sur une assertion de framework, même après
-installation d'une configuration redevenue valide.
+**GO : le finding P2 initial est corrigé et fermé, sans nouveau finding.** Le
+correctif intercepte uniquement le wrapper privé produit à la frontière du
+`TextScaler` utilisateur. Les six entrées dry/intrinsic rapportent l'objet et
+la stack d'origine, rendent leur fallback borné et ne laissent plus les gardes
+Flutter empoisonnés. Après rebuild valide, les six métriques retrouvent leur
+valeur normale sur la même instance de render object sous Flutter 3.41.0 et
+3.47.2.
 
-Le finding ne remet pas en cause le choix architectural lean, la branche
-replacement lazy, les groupes, `textKey`, les recognizers, la sélection ou les
-compositions intrinsèques valides. Il bloque néanmoins l'affirmation du journal
-lot 9 selon laquelle les erreurs et requêtes dry répétées sont sans effet. Une
-correction bornée aux six entrées dry/intrinsic, puis une revalidation ciblée,
-est requise avant acceptation.
+Le wet rapporte toujours exactement l'erreur et la stack utilisateur
+d'origine. Une erreur injectée hors scaler dans `TextSpan.build` continue de
+traverser : le correctif n'est pas un catch-all de `TextPainter`, du child ou du
+framework. La branche replacement lazy, les groupes, `textKey`, les
+recognizers, la sélection, les ressources et les compositions intrinsèques
+valides restent verts dans la suite complète.
 
 ## Finding
 
-### [P2] Une erreur dry empoisonne les appels dry suivants du render object
+### [P2 — corrigé et revalidé] Une erreur dry empoisonnait les appels suivants
 
-**Fichiers :** `lib/src/auto_size_text_render_object.dart:187-223` et
-`lib/src/auto_size_text_layout.dart:159-165,347-377,465-493,537-545`
+**Cause au tip initial :** `lib/src/auto_size_text_render_object.dart:187-223`
+et `lib/src/auto_size_text_layout.dart:159-165,347-377,465-493,537-545`.
+**Correction courante :** `lib/src/auto_size_text_layout.dart:159-164,535-565`
+et `lib/src/auto_size_text_render_object.dart:153-282`.
 
-`computeDryLayout`, `computeDryBaseline` et les quatre intrinsics appellent
-directement `_snapshot.select` / `intrinsicHeight`. Dans la reproduction, la
+Au tip initial, `computeDryLayout`, `computeDryBaseline` et les quatre
+intrinsics appelaient directement `_snapshot.select` / `intrinsicHeight`. Dans la reproduction, la
 sélection arrive dans `_measure`, puis `TextPainter.layout` appelle
 `_CandidateTextScaler.scale`. La ligne 163 délègue à
 `source.scale(adjustedFontSize)` : le scaler fourni par l'appelant lève alors
@@ -126,9 +131,9 @@ du package ou dans Flutter. La frontière étroite est connue : les appels au
    doit produire le même wrapper typé après la validation existante.
 2. Dans les six overrides dry/intrinsic, capturer uniquement ce wrapper privé.
    Rapporter son erreur originale et sa stack avec `FlutterError.reportError`,
-   puis retourner un fallback fini sans mutation : `constraints.smallest` pour
-   dry layout, `0.0` pour baseline et intrinsics. Ne pas démonter le child, ne
-   pas publier au groupe et ne pas lire la replacement.
+   puis retourner un fallback fini sans mutation : la taille nulle contrainte
+   pour dry layout, `null` pour baseline et `0.0` pour les intrinsics. Ne pas
+   démonter le child, ne pas publier au groupe et ne pas lire la replacement.
 3. Laisser remonter les erreurs levées hors du seul appel au callback
    utilisateur, notamment `AssertionError`, `FlutterError`, `UnsupportedError`
    et les erreurs internes de `TextPainter`/Flutter. Le traitement wet existant
@@ -140,6 +145,37 @@ couvrir dry layout, dry baseline et au moins un intrinsic avec : scaler
 immuable fautif, erreur originale rapportée, rebuild valide, puis second appel
 valide sur le même render object. Elles doivent conserver le témoin child
 wet-only qui lève si le parent le consulte.
+
+### Correction observée et séquences finales
+
+`_scaleUserFontSize` entoure seulement l'appel `scaler.scale` et la validation
+de sa sortie, puis conserve l'objet et la stack dans
+`_AutoSizeTextUserScalerFailure`. `_recoverUserScalerFailure` ne capture que ce
+type privé dans les six overrides non-wet. Le reste de `_snapshot.select`,
+`TextPainter`, les spans et Flutter demeure hors de cette capture. Le chemin
+wet dépaquette le même wrapper vers `_reportWetLayoutFailure`, ce qui conserve
+le contrat wet antérieur tout en restaurant l'erreur et la stack originales.
+
+L'oracle permanent a été rejoué sans modification sous les deux SDK :
+
+1. mesurer normalement les six métriques et conserver leurs valeurs ;
+2. installer par rebuild build-only un scaler immuable qui lève un objet
+   `StateError` connu ;
+3. vérifier le fallback dry, le rapport du même objet et une stack contenant
+   `_ThrowingTextScaler.scale` ;
+4. réinstaller `TextScaler.noScaling` par rebuild build-only ;
+5. vérifier l'identité du render object et l'égalité des six métriques avec les
+   valeurs normales initiales ;
+6. répéter isolément baseline et les quatre intrinsics pour leurs fallbacks,
+   rapports, stacks et récupérations ;
+7. provoquer le même scaler en wet et vérifier l'identité exacte de l'erreur et
+   la stack originale ;
+8. injecter séparément `StateError('paragraph failure')` dans
+   `TextSpan.build` et vérifier que l'intrinsic le relance tel quel.
+
+Aucun `AssertionError` de garde dry ne suit désormais le `StateError` scaler.
+Le témoin hors scaler confirme aussi qu'une erreur de child/framework ne serait
+pas transformée en fallback par ce correctif.
 
 ## Surfaces relues et résultats
 
@@ -212,7 +248,8 @@ suite leak permanente exerce les six requêtes sèches, les chemins fit/no-fit,
 les erreurs wet, les rebuilds et le retrait de groupe. Le probe observe aussi
 la disposition réelle des render children lors des bascules et du démontage.
 
-Le seul défaut de ressources/protocole observé est le finding dry-error ci-dessus.
+Le seul défaut de ressources/protocole observé au tip initial était le finding
+dry-error ci-dessus ; il est fermé par la correction revalidée.
 
 ## Matrice exécutée
 
@@ -225,15 +262,32 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 | Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
 | --- | ---: | ---: |
-| probe indépendant lifecycle/error | 5/5 | 5/5 |
-| analyse fatale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
-| suite complète officielle | 140/140 | 140/140 |
-| lifecycle/leak inclus dans la suite | vert | vert |
-| analyse de `example/` sur résolution compatible | aucun diagnostic | aucun diagnostic |
+| probe indépendant initial lifecycle/error | 5/5 | 5/5 |
+| analyse fatale initiale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+| suite complète initiale | 140/140 | 140/140 |
+| lifecycle/leak initial inclus dans la suite | vert | vert |
+| analyse initiale de `example/` sur résolution compatible | aucun diagnostic | aucun diagnostic |
 
-Le test du finding est vert parce qu'il encode explicitement la séquence
-fautive attendue `StateError -> AssertionError`; il ne transforme pas le défaut
-en succès produit.
+Le probe initial encodait explicitement la séquence fautive attendue
+`StateError -> AssertionError`; l'oracle permanent ajouté par `bb0ca91`, puis
+retourné par `dbd2ea1`, exige maintenant la récupération produit décrite plus
+haut.
+
+### Revalidation finale après correctif
+
+| Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
+| --- | ---: | ---: |
+| oracle render object, dont scaler/hors-scaler | 8/8 | 8/8 |
+| lifecycle/leak dédié | 10/10 | 10/10 |
+| suite complète officielle | 143/143 | 143/143 |
+| analyse fatale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+
+La résolution 3.41.0 a temporairement abaissé six dépendances dans cette
+revalidation. Le lock racine ignoré a ensuite été régénéré sous 3.47.2 ; les
+deux locks ont retrouvé exactement les SHA-1 canoniques consignés ci-dessous.
+Aucun probe temporaire ni changement de code produit n'a été nécessaire pour
+la revalidation finale : les trois tests de régression permanents couvrent la
+séquence exacte, le wet et le témoin hors scaler.
 
 Le lock `example/pubspec.lock` haut ne peut pas être imposé tel quel à Flutter
 3.41.0 : `meta 1.19.0` et `vector_math 2.4.2` doivent descendre respectivement à
@@ -292,7 +346,7 @@ Conformément au périmètre demandé, cette revue ne réclame ni support de
 ## Conclusion
 
 Les chemins valides et la compatibilité 3.41/3.47 sont solides, et la frontière
-render respecte le contrat lazy retenu. Le lot ne doit toutefois pas être
-accepté tant que les six méthodes dry/intrinsic laissent une erreur de mesure
-sortir et empoisonner le protocole Flutter. Verdict final : **NO-GO, un P2 à
-corriger, aucun P0/P1 et aucun autre P2 observé.**
+render respecte le contrat lazy retenu. Le traitement ciblé du scaler empêche
+l'erreur utilisateur prouvée d'empoisonner le protocole Flutter sans masquer
+les erreurs hors scaler. Verdict final : **GO, P2 fermé, aucun P0/P1 et aucun
+autre P2 observé.**
