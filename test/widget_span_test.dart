@@ -405,7 +405,7 @@ void main() {
         final witnessKeys = List<GlobalKey>.generate(3, (_) => GlobalKey());
 
         TextSpan spans(List<GlobalKey> keys) => TextSpan(
-          style: const TextStyle(fontSize: 20),
+          style: const TextStyle(fontFamily: 'Ahem', fontSize: 20),
           children: <InlineSpan>[
             WidgetSpan(child: SizedBox(key: keys[0], width: 20, height: 10)),
             TextSpan(
@@ -470,6 +470,68 @@ void main() {
         expect(_rectInParagraph(tester, autoKeys.last, auto).size, Size.zero);
       },
     );
+
+    testWidgets('should keep a zero reference finite and match RichText', (
+      tester,
+    ) async {
+      final autoTextKey = GlobalKey();
+      final witnessTextKey = GlobalKey();
+      final autoKeys = List<GlobalKey>.generate(2, (_) => GlobalKey());
+      final witnessKeys = List<GlobalKey>.generate(2, (_) => GlobalKey());
+
+      TextSpan spans(List<GlobalKey> keys) => TextSpan(
+        children: <InlineSpan>[
+          WidgetSpan(child: SizedBox(key: keys[0], width: 20, height: 10)),
+          TextSpan(
+            style: const TextStyle(fontSize: 20),
+            children: <InlineSpan>[
+              WidgetSpan(child: SizedBox(key: keys[1], width: 20, height: 10)),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _host(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              AutoSizeText.rich(
+                spans(autoKeys),
+                textKey: autoTextKey,
+                style: const TextStyle(fontFamily: 'Ahem', fontSize: 0),
+                minFontSize: 0,
+                textScaler: const _NonlinearScaler(),
+              ),
+              RichText(
+                key: witnessTextKey,
+                text: TextSpan(
+                  style: const TextStyle(fontFamily: 'Ahem', fontSize: 0),
+                  children: <InlineSpan>[spans(witnessKeys)],
+                ),
+                textScaler: const _NonlinearScaler(),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final auto = _paragraph(tester, autoTextKey);
+      final witness = tester.renderObject<RenderParagraph>(
+        find.byKey(witnessTextKey),
+      );
+      for (var index = 0; index < autoKeys.length; index += 1) {
+        final autoRect = _rectInParagraph(tester, autoKeys[index], auto);
+        final witnessRect = _rectInParagraph(
+          tester,
+          witnessKeys[index],
+          witness,
+        );
+        expect(autoRect, within(distance: 0.001, from: witnessRect));
+        expect(autoRect.isFinite, isTrue);
+      }
+      expect(_rectInParagraph(tester, autoKeys.first, auto).size, Size.zero);
+    });
 
     testWidgets(
       'should keep six non-wet metrics at zero without querying the child',
@@ -600,6 +662,7 @@ void main() {
                         label: 'inline action',
                         button: true,
                         child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
                           onTap: () => childTaps += 1,
                           child: SizedBox(key: childKey, width: 20, height: 12),
                         ),
@@ -623,6 +686,7 @@ void main() {
             )
             .single;
         await tester.tapAt(paragraph.localToGlobal(textBox.toRect().center));
+        await tester.pump();
         await tester.tapAt(
           paragraph.localToGlobal(
             _rectInParagraph(tester, childKey, paragraph).center,
@@ -770,7 +834,7 @@ void main() {
       );
       final candidates = List<double>.generate(
         1024,
-        (index) => (index + 1).toDouble(),
+        (index) => (1024 - index).toDouble(),
       );
 
       await tester.pumpWidget(

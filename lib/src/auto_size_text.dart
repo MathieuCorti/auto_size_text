@@ -272,12 +272,6 @@ class _AutoSizeTextState extends State<AutoSizeText> {
     _validateProperties(configuration.maxLines);
 
     final sourceTextSpan = widget.textSpan;
-    if (sourceTextSpan != null && _containsWidgetSpan(sourceTextSpan)) {
-      throw UnsupportedError(
-        'AutoSizeText.rich does not support WidgetSpan until inline children '
-        'receive automatic placeholder dimensions.',
-      );
-    }
 
     return _AutoSizeTextRenderWidget(
       snapshot: _AutoSizeTextLayoutSnapshot(

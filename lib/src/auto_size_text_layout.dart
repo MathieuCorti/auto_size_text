@@ -97,16 +97,21 @@ final class _UnbreakableTextSnapshot {
   final List<TextRange> ranges;
 }
 
-bool _containsWidgetSpan(InlineSpan text) {
-  var containsWidgetSpan = false;
-  text.visitChildren((span) {
-    if (span is WidgetSpan) {
-      containsWidgetSpan = true;
-      return false;
+List<WidgetSpan> _widgetSpansInPreorder(InlineSpan root) {
+  final spans = <WidgetSpan>[];
+
+  void visit(InlineSpan span) {
+    if (span case final WidgetSpan widgetSpan) {
+      spans.add(widgetSpan);
     }
-    return true;
-  });
-  return containsWidgetSpan;
+    span.visitDirectChildren((child) {
+      visit(child);
+      return true;
+    });
+  }
+
+  visit(root);
+  return List<WidgetSpan>.unmodifiable(spans);
 }
 
 TextSpan _applyTextStyleOverride(TextSpan text, TextStyle? override) {
@@ -279,6 +284,9 @@ final class _AutoSizeTextLayoutSnapshot {
             textSpan,
             configuration.measurementTextStyleOverride,
           );
+    final widgetSpans = measurementTextSpan == null
+        ? const <WidgetSpan>[]
+        : _widgetSpansInPreorder(measurementTextSpan);
     return _AutoSizeTextLayoutSnapshot._(
       data: data,
       textSpan: textSpan,
@@ -296,6 +304,7 @@ final class _AutoSizeTextLayoutSnapshot {
       candidates: candidates,
       groupLimit: groupLimit,
       measurementTextSpan: measurementTextSpan,
+      widgetSpans: widgetSpans,
       unbreakableTextSnapshot: wrapWords
           ? null
           : _UnbreakableTextSnapshot.from(
@@ -321,6 +330,7 @@ final class _AutoSizeTextLayoutSnapshot {
     required this.candidates,
     required this.groupLimit,
     required this.measurementTextSpan,
+    required this.widgetSpans,
     required this.unbreakableTextSnapshot,
   });
 
@@ -340,6 +350,7 @@ final class _AutoSizeTextLayoutSnapshot {
   final _CandidateSet candidates;
   final double groupLimit;
   final TextSpan? measurementTextSpan;
+  final List<WidgetSpan> widgetSpans;
   final _UnbreakableTextSnapshot? unbreakableTextSnapshot;
 
   _AutoSizeTextSelection select(BoxConstraints constraints) {
@@ -375,6 +386,59 @@ final class _AutoSizeTextLayoutSnapshot {
     );
   }
 
+  _AutoSizeTextSelection selectWet(
+    BoxConstraints constraints,
+    RenderBox paragraphHost,
+    _RenderAutoSizeInlineParagraph paragraph,
+    void Function(double candidate) configureCandidate,
+  ) {
+    final measurements = <double, _AutoSizeTextMeasurement>{};
+    double? configuredCandidate;
+    _AutoSizeTextMeasurement measure(double candidate) {
+      configureCandidate(candidate);
+      configuredCandidate = candidate;
+      final measurement = _measureWet(
+        candidate,
+        constraints,
+        paragraphHost,
+        paragraph,
+      );
+      measurements[candidate] = measurement;
+      return measurement;
+    }
+
+    final local = candidates.findLargestThatFits((candidate) {
+      return measure(candidate).fits;
+    });
+    final localMeasurement = measurements[local.value] ?? measure(local.value);
+    final renderCandidate = candidates.findLargestThatFits((candidate) {
+      if (candidate > local.value) {
+        return false;
+      }
+      return _checkedEffectiveFontSize(
+            configuration.userScaler,
+            candidate,
+            name: 'projectedFontSize',
+          ) <=
+          groupLimit;
+    }).value;
+    var measurement = measurements[renderCandidate];
+    if (measurement == null || configuredCandidate != renderCandidate) {
+      measurement = measure(renderCandidate);
+    }
+    return _AutoSizeTextSelection(
+      localCandidate: local.value,
+      localEffectiveFontSize: _checkedEffectiveFontSize(
+        configuration.userScaler,
+        local.value,
+        name: 'calculatedFontSize',
+      ),
+      localFits: local.fits || localMeasurement.fits,
+      renderCandidate: renderCandidate,
+      measurement: measurement,
+    );
+  }
+
   double intrinsicHeight(double candidate, double width) {
     final painter = _createPainter(candidate);
     try {
@@ -398,6 +462,12 @@ final class _AutoSizeTextLayoutSnapshot {
         ? (renderStyle ?? const TextStyle()).copyWith(fontSize: candidate)
         : renderStyle;
     final candidateScaler = _candidateScaler(candidate);
+    if (widgetSpans.isNotEmpty) {
+      return _AutoSizeTextParagraph(
+        key: textKey,
+        child: _AutoSizeInlineText(snapshot: this, candidate: candidate),
+      );
+    }
     final child = data != null
         ? Text(
             data!,
@@ -431,6 +501,27 @@ final class _AutoSizeTextLayoutSnapshot {
           );
     return _AutoSizeTextParagraph(key: textKey, child: child);
   }
+
+  InlineSpan resolvedText(double candidate) {
+    final referenceFontSize = configuration.referenceFontSize;
+    final parentStyle = referenceFontSize == 0
+        ? configuration.measurementStyle.copyWith(fontSize: candidate)
+        : configuration.measurementStyle;
+    return TextSpan(
+      style: parentStyle,
+      text: data,
+      locale: renderLocale,
+      children: measurementTextSpan == null
+          ? null
+          : <InlineSpan>[measurementTextSpan!],
+    );
+  }
+
+  TextScaler candidateScaler(double candidate) => _candidateScaler(candidate);
+
+  double get minimumCandidate => candidates[0];
+
+  bool get hasWidgetSpans => widgetSpans.isNotEmpty;
 
   _AutoSizeTextMeasurement _measure(
     double candidate,
@@ -491,21 +582,63 @@ final class _AutoSizeTextLayoutSnapshot {
     }
   }
 
-  TextPainter _createPainter(double candidate, {bool includeMaxLines = true}) {
-    final referenceFontSize = configuration.referenceFontSize;
-    final parentStyle = referenceFontSize == 0
-        ? configuration.measurementStyle.copyWith(fontSize: candidate)
-        : configuration.measurementStyle;
-    final text = TextSpan(
-      style: parentStyle,
-      text: data,
-      locale: renderLocale,
-      children: measurementTextSpan == null
-          ? null
-          : <InlineSpan>[measurementTextSpan!],
+  _AutoSizeTextMeasurement _measureWet(
+    double candidate,
+    BoxConstraints constraints,
+    RenderBox paragraphHost,
+    _RenderAutoSizeInlineParagraph paragraph,
+  ) {
+    paragraphHost.layout(constraints, parentUsesSize: true);
+    var unbreakableRangesFit = true;
+    final unbreakableSnapshot = unbreakableTextSnapshot;
+    if (unbreakableSnapshot != null) {
+      final wordPainter = _createPainter(
+        candidate,
+        includeMaxLines: false,
+        placeholderDimensions: paragraph.wetPlaceholderDimensions(),
+      );
+      try {
+        wordPainter.layout(maxWidth: double.infinity);
+        for (final range in unbreakableSnapshot.ranges) {
+          final boxes = wordPainter.getBoxesForSelection(
+            TextSelection(baseOffset: range.start, extentOffset: range.end),
+          );
+          final rangeWidth = boxes.fold<double>(
+            0,
+            (width, box) => width + (box.right - box.left).abs(),
+          );
+          if (rangeWidth > constraints.maxWidth) {
+            unbreakableRangesFit = false;
+            break;
+          }
+        }
+      } finally {
+        wordPainter.dispose();
+      }
+    }
+    final textSize = paragraph.textSize;
+    final renderSize = constraints.constrain(textSize);
+    return _AutoSizeTextMeasurement(
+      fits:
+          unbreakableRangesFit &&
+          !paragraph.didExceedMaxLines &&
+          renderSize.width >= textSize.width &&
+          renderSize.height >= textSize.height,
+      textSize: textSize,
+      renderSize: renderSize,
+      baseline: 0,
+      minIntrinsicWidth: 0,
+      maxIntrinsicWidth: 0,
     );
-    return TextPainter(
-      text: text,
+  }
+
+  TextPainter _createPainter(
+    double candidate, {
+    bool includeMaxLines = true,
+    List<PlaceholderDimensions>? placeholderDimensions,
+  }) {
+    final painter = TextPainter(
+      text: resolvedText(candidate),
       textAlign: configuration.textAlign,
       textDirection: configuration.textDirection,
       textScaler: _candidateScaler(candidate),
@@ -518,6 +651,26 @@ final class _AutoSizeTextLayoutSnapshot {
       textWidthBasis: configuration.textWidthBasis,
       textHeightBehavior: configuration.textHeightBehavior,
     );
+    if (widgetSpans.isNotEmpty) {
+      painter.setPlaceholderDimensions(
+        placeholderDimensions ?? _zeroPlaceholderDimensions(),
+      );
+    }
+    return painter;
+  }
+
+  List<PlaceholderDimensions> _zeroPlaceholderDimensions() {
+    return <PlaceholderDimensions>[
+      for (final span in widgetSpans)
+        PlaceholderDimensions(
+          size: Size.zero,
+          alignment: span.alignment,
+          baseline: span.baseline,
+          baselineOffset: span.alignment == ui.PlaceholderAlignment.baseline
+              ? 0
+              : null,
+        ),
+    ];
   }
 
   TextScaler _candidateScaler(double candidate) {
@@ -556,6 +709,8 @@ double _scaleUserFontSize(
     final scaledFontSize = scaler.scale(fontSize);
     _requireFiniteNonNegative(scaledFontSize, name);
     return _canonicalCandidateZero(scaledFontSize);
+  } on _AutoSizeTextUserScalerFailure {
+    rethrow;
   } catch (error, stackTrace) {
     Error.throwWithStackTrace(
       _AutoSizeTextUserScalerFailure(error, stackTrace),
