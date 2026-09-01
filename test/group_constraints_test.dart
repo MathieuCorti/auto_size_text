@@ -637,6 +637,7 @@ void main() {
         updateLimiter(() => showLimiter = false);
         await tester.pump();
         expect(tester.takeException(), isNull);
+        expect(tester.binding.hasScheduledFrame, isTrue);
 
         await tester.pump();
         expect(tester.takeException(), isNull);
