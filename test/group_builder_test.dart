@@ -45,44 +45,47 @@ void _expectFontSizes(WidgetTester tester, double fontSize) {
 }
 
 void main() {
-  testWidgets('Group sync', (tester) async {
-    await tester.pumpWidget(testWidget(width1: 300, width2: 300));
+  group('AutoSizeGroupBuilder', () {
+    testWidgets('should synchronize font sizes as layout changes', (
+      tester,
+    ) async {
+      await tester.pumpWidget(testWidget(width1: 300, width2: 300));
 
-    _expectFontSizes(tester, 50);
+      _expectFontSizes(tester, 50);
 
-    await tester.pumpWidget(testWidget(width1: 200, width2: 300));
+      await tester.pumpWidget(testWidget(width1: 200, width2: 300));
 
-    _expectFontSizes(tester, 33);
+      _expectFontSizes(tester, 33);
 
-    await tester.pumpWidget(testWidget(width1: 200, width2: 150));
+      await tester.pumpWidget(testWidget(width1: 200, width2: 150));
 
-    _expectFontSizes(tester, 25);
+      _expectFontSizes(tester, 25);
 
-    await tester.pumpWidget(testWidget(width1: 200, width2: 100));
+      await tester.pumpWidget(testWidget(width1: 200, width2: 100));
 
-    _expectFontSizes(tester, 16);
+      _expectFontSizes(tester, 16);
 
-    await tester.pumpWidget(testWidget(width1: 60, width2: 60));
+      await tester.pumpWidget(testWidget(width1: 60, width2: 60));
 
-    _expectFontSizes(tester, 10);
+      _expectFontSizes(tester, 10);
 
-    await tester.pumpWidget(testWidget(width1: 200, width2: 60));
+      await tester.pumpWidget(testWidget(width1: 200, width2: 60));
 
-    _expectFontSizes(tester, 10);
+      _expectFontSizes(tester, 10);
 
-    await tester.pumpWidget(testWidget(width1: 200, width2: 250));
+      await tester.pumpWidget(testWidget(width1: 200, width2: 250));
 
-    _expectFontSizes(tester, 33);
+      _expectFontSizes(tester, 33);
 
-    await tester.pumpWidget(testWidget(width1: 250, width2: 250));
+      await tester.pumpWidget(testWidget(width1: 250, width2: 250));
 
-    _expectFontSizes(tester, 41);
+      _expectFontSizes(tester, 41);
 
-    await tester.pumpWidget(testWidget(width1: 300, width2: 300));
-    // Upsizing both requires an extra frame to settle on the new size.
-    await tester.pump();
+      await tester.pumpWidget(testWidget(width1: 300, width2: 300));
+      // Upsizing both requires an extra frame to settle on the new size.
+      await tester.pump();
 
-    _expectFontSizes(tester, 50);
+      _expectFontSizes(tester, 50);
+    });
   });
 }
-
