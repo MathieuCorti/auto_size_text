@@ -33,8 +33,8 @@ Fichiers recommandés :
 | `test/assets/fonts/auto_size_metric_roboto_regular.ttf` | 2 660 octets | `893780a2a9c1b15a9ee784b1e34568ff755d3ff9815c9fa755febe303d7bd9c1` | poids `w400`, direction et hauteur |
 | `test/assets/fonts/auto_size_metric_roboto_bold.ttf` | 2 632 octets | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` | poids `w700` |
 | `test/assets/fonts/auto_size_metric_naskh_locl.ttf` | 5 212 octets | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` | substitution localisée arabe/perse |
-| `test/assets/fonts/LICENSE-Roboto.txt` | texte | à copier sans modification | Apache-2.0 des deux faces Roboto |
-| `test/assets/fonts/LICENSE-NotoNaskhArabic.txt` | texte | à copier sans modification | SIL Open Font License 1.1 |
+| `test/assets/fonts/LICENSE-Roboto.txt` | 11 358 octets | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` | Apache-2.0 des deux faces Roboto |
+| `test/assets/fonts/LICENSE-NotoNaskhArabic.txt` | 4 301 octets | `c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f` | texte SIL Open Font License 1.1 déjà archivé par Flutter |
 
 Les trois binaires totalisent **10 504 octets**. Les tests enregistrent les
 deux faces Roboto sous la famille privée `AutoSizeTextMetricRoboto`, et la
@@ -44,6 +44,70 @@ explicite : aucune résolution d'une police installée sur l'hôte n'intervient.
 Les binaires sont des fixtures versionnées et vérifiées par hash. La génération
 est une opération de maintenance ponctuelle ; elle ne doit pas être rejouée en
 CI et ne doit jamais télécharger une fonte.
+
+### Recette exacte ayant produit les fichiers validés
+
+Exécuter depuis la racine du paquet. Ces chemins sont ceux des bundles exacts
+de la matrice locale ; les hashes de sortie ci-dessus sont les autorités, pas
+le nom mutable d'un canal Flutter :
+
+```sh
+mkdir -p test/assets/fonts
+
+printf '0x0028 0x0029 0x003C 0x003E 0x0048 0x004D 0x0067\n' |
+  /private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/artifacts/engine/darwin-x64/font-subset \
+    test/assets/fonts/auto_size_metric_roboto_regular.ttf \
+    /private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf
+
+printf '0x0028 0x0029 0x003C 0x003E 0x0048 0x004D 0x0067\n' |
+  /private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/artifacts/engine/darwin-x64/font-subset \
+    test/assets/fonts/auto_size_metric_roboto_bold.ttf \
+    /private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/artifacts/material_fonts/Roboto-Bold.ttf
+
+/opt/homebrew/bin/hb-subset \
+  --unicodes=066B,066C,06F7 \
+  --layout-features=locl \
+  --layout-scripts=arab \
+  --glyph-names \
+  --output-file=test/assets/fonts/auto_size_metric_naskh_locl.ttf \
+  /private/tmp/flutter-sdk-3.47.2/flutter/engine/src/flutter/txt/third_party/fonts/NotoNaskhArabic-Regular.ttf
+
+cp \
+  /private/tmp/flutter-sdk-3.47.2/flutter/bin/cache/artifacts/material_fonts/Roboto_LICENSE.txt \
+  test/assets/fonts/LICENSE-Roboto.txt
+
+git -C /private/tmp/flutter-sdk-3.47.2/flutter show \
+  '358e88cabfdd7311c8093d8523da78b0ab2f934d:engine/src/flutter/third_party/txt/third_party/fonts/NotoColorEmoji-LICENSE.txt' \
+  > test/assets/fonts/LICENSE-NotoNaskhArabic.txt
+
+shasum -a 256 test/assets/fonts/*
+```
+
+Le dernier blob est le texte OFL 1.1 générique versionné par Flutter ; le TTF
+Noto conserve en plus son propre enregistrement de copyright Google et sa
+déclaration OFL. Renommer le fichier de licence ne change pas son contenu. La
+sortie de `shasum` doit correspondre aux cinq hashes complets de la table avant
+d'écrire un test ou de committer les assets.
+
+Contrôles de préservation utiles après génération :
+
+```sh
+fc-scan --format '%{family}|%{style}\n' \
+  test/assets/fonts/auto_size_metric_roboto_regular.ttf \
+  test/assets/fonts/auto_size_metric_roboto_bold.ttf
+
+hb-shape test/assets/fonts/auto_size_metric_naskh_locl.ttf \
+  --direction=rtl --language=ar --output-format=json $'\u066c'
+
+hb-shape test/assets/fonts/auto_size_metric_naskh_locl.ttf \
+  --direction=rtl --language=fa --output-format=json $'\u066c'
+```
+
+Le premier contrôle doit annoncer `Roboto|Regular` puis `Roboto|Bold`. Les
+deux derniers doivent sélectionner respectivement `uni066C` avec avance 329 et
+`ThousandsSepFarsi` avec avance 455. La preuve finale de matching des poids
+reste le probe Flutter `w400`/`w700`, car `FontLoader` enregistre les deux
+faces sous une famille privée commune.
 
 ## Provenance et génération reproductible
 
@@ -269,11 +333,12 @@ rester aussi. Il ne faut ni ignorer seulement les TTF dans `.pubignore`, ce qui
 publierait des tests cassés, ni ignorer les licences, ce qui violerait les
 conditions de redistribution.
 
-Impact binaire non compressé connu : **10 504 octets**, plus deux petits
-fichiers de licence texte. Il est très inférieur aux 342 436 octets des deux
-Roboto complets et aux 255 280 octets du Noto complet. Le dry-run final du lot
-archive doit ajouter ces cinq entrées à sa liste positive, mesurer la nouvelle
-taille compressée et vérifier l'absence de chemins absolus dans les helpers.
+Impact non compressé connu : **10 504 octets** de fontes plus **15 659
+octets** de licences, soit **26 163 octets**. Il est très inférieur aux 342 436
+octets des deux Roboto complets et aux 255 280 octets du Noto complet. Le
+dry-run final du lot archive doit ajouter ces cinq entrées à sa liste positive,
+mesurer la nouvelle taille compressée et vérifier l'absence de chemins absolus
+dans les helpers.
 
 Comme les fontes ne figurent pas dans `pubspec.yaml`, elles n'augmentent pas le
 bundle d'une application consommatrice. Elles augmentent seulement le dépôt et
