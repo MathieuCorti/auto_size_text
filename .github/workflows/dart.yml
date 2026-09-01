@@ -27,6 +27,9 @@ jobs:
           - gate: compat-high
             revision: d3b14c876900e553bc736ca19295fc09e3853e8e
             flutter: 3.47.2
+          - gate: downgrade
+            flutter: 3.41.0
+            revision: 44a626f4f0027bc38a46dc68aed5964b05a83c18
           - gate: demo
             revision: d3b14c876900e553bc736ca19295fc09e3853e8e
             flutter: 3.47.2
@@ -116,6 +119,23 @@ jobs:
           flutter pub get
           flutter analyze --no-pub --fatal-infos --fatal-warnings
 
+      - name: Validate downgraded dependencies
+        if: matrix.gate == 'downgrade'
+        run: |
+          downgrade_tree="$RUNNER_TEMP/downgrade-tree"
+          mkdir "$downgrade_tree"
+          git archive --format=tar HEAD | tar -xf - -C "$downgrade_tree"
+          mv \
+            "$downgrade_tree/example/pubspec.lock" \
+            "$downgrade_tree/example/pubspec.lock.canonical-high"
+          cd "$downgrade_tree"
+          flutter pub get --no-example
+          flutter pub downgrade --no-example
+          flutter analyze \
+            --no-pub --fatal-infos --fatal-warnings \
+            lib test example/main.dart
+          flutter test --no-pub
+
       - name: Analyze, smoke test, and build demo
         if: matrix.gate == 'demo'
         working-directory: demo
@@ -134,9 +154,74 @@ jobs:
             exit 1
           fi
 
+      - name: Validate API documentation
+        if: matrix.gate == 'package'
+        env:
+          FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter/${{ matrix.flutter }}
+        run: |
+          dartdoc_log="$RUNNER_TEMP/dartdoc-dry-run.log"
+          flutter pub get --no-example
+          dart doc --output "$RUNNER_TEMP/dartdoc" --dry-run \
+            2>&1 | tee "$dartdoc_log"
+          grep -Fq 'Found 0 warnings and 0 errors.' "$dartdoc_log"
+
       - name: Validate publish archive
         if: matrix.gate == 'package'
-        run: flutter pub publish --dry-run
+        run: |
+          publish_log="$RUNNER_TEMP/publish-dry-run.log"
+          archive_listing="$RUNNER_TEMP/publish-archive-listing.txt"
+          flutter pub publish --dry-run --verbose 2>&1 | tee "$publish_log"
+
+          awk -v root="$GITHUB_WORKSPACE/" '
+            /Creating \.tar\.gz stream containing:/ {
+              listing = 1
+              next
+            }
+            listing && /^MSG :/ {
+              exit
+            }
+            listing && /^    \| / {
+              path = substr($0, 7)
+              if (index(path, root) == 1) {
+                path = substr(path, length(root) + 1)
+              }
+              if (path != ".") {
+                print path
+              }
+            }
+          ' "$publish_log" > "$archive_listing"
+          cat "$archive_listing"
+          test -s "$archive_listing"
+          grep -Fq 'Package has 0 warnings.' "$publish_log"
+
+          for required_path in \
+            CHANGELOG.md \
+            LICENSE \
+            README.md \
+            analysis_options.yaml \
+            pubspec.yaml \
+            example/main.dart \
+            example/pubspec.yaml \
+            test/assets/fonts/LICENSE-NotoNaskhArabic.txt \
+            test/assets/fonts/LICENSE-Roboto.txt \
+            test/assets/fonts/auto_size_metric_naskh_locl.ttf \
+            test/assets/fonts/auto_size_metric_roboto_bold.ttf \
+            test/assets/fonts/auto_size_metric_roboto_regular.ttf
+          do
+            if ! grep -Fxq "$required_path" "$archive_listing"; then
+              printf 'Missing required archive path: %s\n' "$required_path"
+              exit 1
+            fi
+          done
+          grep -Eq '^lib/.+' "$archive_listing"
+          grep -Eq '^test/.+' "$archive_listing"
+
+          forbidden_pattern='(^|/)(\.dart_tool|\.github|\.secrets|android|build|coverage|demo|ios|maintenance|secrets)(/|$)|(^|/)pubspec\.lock$|(^|/)(GoogleService-Info\.plist|google-services\.json|gradle-wrapper\.jar|gradlew|gradlew\.bat|key\.properties|keystore\.properties|local\.properties)$|(^|/)(\.env(\..*)?|.*\.(asc|cer|crt|der|jks|key|keystore|mobileprovision|p12|pem|pfx|ppk|provisionprofile|secret|sig))$|^/|^[A-Za-z]:[/\\]'
+          if grep -Eq "$forbidden_pattern" "$archive_listing"; then
+            printf 'Forbidden archive paths:\n'
+            grep -E "$forbidden_pattern" "$archive_listing"
+            exit 1
+          fi
 
       - name: Check checkout remains clean
         run: |
