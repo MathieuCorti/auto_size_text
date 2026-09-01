@@ -141,6 +141,64 @@ simple/riche et un domaine de 4 096 candidats sous borne logarithmique.
 Verdict : aucun finding fonctionnel P0, P1 ou P2. Le probe a été supprimé et le
 worktree de challenge est propre.
 
+## Correctif après revue lifecycle
+
+Une revue lifecycle plus profonde, consignée dans `4b9bb54` puis précisée par
+`8ee34e7`, a ensuite isolé un P2 distinct : lorsqu'un `TextScaler.scale`
+utilisateur levait pendant `getDryLayout` ou `getDryBaseline`, l'exception
+sortait de la frontière `RenderBox`. Les Flutter 3.41.0 et 3.47.2 ne remettent
+leurs gardes dry internes à zéro qu'après un retour normal. Après un rebuild
+valide, la seconde requête sur le même render object échouait donc sur une
+assertion de garde Flutter restée armée.
+
+Le commit rouge `13cd615` reproduit la séquence exacte sans scaler mutable :
+wet valide, rebuild limité à `EnginePhase.build` avec un scaler immuable qui
+lève, requête dry, rebuild build-only valide, puis nouvelle requête sur la même
+instance de parent. Sur `033a938`, le premier `StateError` sort directement et
+le test échoue avant le fallback attendu.
+
+Le correctif `64ecf8a` borne le traitement aux deux appels directs au scaler
+utilisateur. `_scaleUserFontSize` appelle le callback et valide sa sortie dans
+un `try/catch` étroit ; il conserve l'objet original et sa stack dans
+`_AutoSizeTextUserScalerFailure`. Les six entrées dry/intrinsic ne capturent que
+ce type privé, rapportent l'erreur originale via `FlutterError.reportError`,
+puis retournent sans mutation :
+
+- dry layout : `constraints.constrain(Size.zero)` ;
+- dry baseline : `null` ;
+- quatre intrinsics : `0.0`.
+
+Wet reconnaît le même wrapper, démonte le child périmé comme auparavant et
+rapporte l'objet utilisateur original avec sa stack originale. Son comportement
+d'erreur visible ne change donc pas. Le catch général wet historique reste
+inchangé pour les autres erreurs de layout.
+
+L'oracle permanent exerce les six fallbacks, l'identité et la stack de chaque
+rapport, puis les six résultats normaux après restauration du scaler sur le
+même render object. `getDryBaseline` réappelle volontairement
+`computeDryBaseline` en assertion debug ; le test exige donc une cardinalité
+exacte d'un rapport pour la reproduction `getDryLayout`, mais seulement que
+tous les rapports baseline proviennent du même objet et de la même stack. Un
+témoin séparé injecte une erreur de `TextSpan.build` hors scaler et vérifie
+qu'elle traverse encore : aucune assertion ou erreur interne Flutter n'est
+convertie en fallback par un catch global.
+
+### Matrice du correctif lifecycle
+
+| Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
+| --- | ---: | ---: |
+| analyse fatale `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+| analyse fatale séparée dans `example/` | aucun diagnostic | aucun diagnostic |
+| ciblé render object | 8/8, inclus dans le ciblé combiné | 8/8 |
+| ciblé scaler/render/intrinsics/lifecycle/leak | 38/38 | 38/38 |
+| lifecycle/leak dédié | 10/10 | 10/10 |
+| suite complète naturelle | 143/143 | 143/143 |
+| suite complète après downgrade minimum | 143/143 | sans objet |
+
+Le downgrade 3.41.0 a de nouveau abaissé neuf dépendances. Le format et les
+deux locks ont ensuite été restaurés avec Flutter 3.47.2 aux SHA-1 canoniques
+déjà consignés plus haut.
+
 ## Limites transmises
 
 - `WidgetSpan` reste hors lot et explicitement gardé jusqu'au lot 10 ;
@@ -155,4 +213,7 @@ worktree de challenge est propre.
 
 - `1d0225f` — `test: reproduce intrinsic layout failures` ;
 - `dbed398` — `feat: support intrinsic text layout` ;
-- commit suivant — `docs: record lot 9 intrinsics validation`.
+- `033a938` — `docs: record lot 9 intrinsics validation` ;
+- `13cd615` — `test: reproduce poisoned dry scaler failures` ;
+- `64ecf8a` — `fix: recover from dry scaler failures` ;
+- commit suivant — journal du correctif lifecycle.
