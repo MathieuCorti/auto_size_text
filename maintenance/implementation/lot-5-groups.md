@@ -6,7 +6,7 @@ Branche : `codex/impl-groups`
 
 Parent exact : `c9a1adc006365feb3e1750069ca1e115c3f20237`
 
-Tête produit et tests : `2f87be2` ; le commit suivant contient uniquement ce
+Tête produit et tests : `44435ce` ; le commit suivant contient uniquement ce
 journal.
 
 ## Périmètre livré
@@ -64,9 +64,11 @@ transactionnel spéculatif. La régression permanente récupère ensuite sans
 modifier A. Elle place d'abord un observateur de domaine `{70,50}`, puis A,
 puis le voisin B qui impose `G=25` dans son propre `StatefulBuilder`. Après
 avoir capturé l'exception, seul B est retiré. À la pompe de synchronisation,
-l'observateur construit avant A rend 50 grâce au rapport conservé et aucune
-frame ne reste planifiée. Un rollback cohérent du rapport et du cache rendrait
-l'observateur à 70 avant qu'A puisse republier, puis programmerait une vague.
+le test exige d'abord qu'une frame ait bien été planifiée par ce retrait.
+L'observateur construit avant A rend ensuite 50 grâce au rapport conservé et
+aucune frame ne reste planifiée. Un rollback cohérent du rapport et du cache
+rendrait l'observateur à 70 avant qu'A puisse republier, puis programmerait une
+vague.
 
 ## Convergence et cycle de vie
 
@@ -168,6 +170,16 @@ cohérent ; le nouvel oracle devient rouge sur les deux pins avec
 éventuelle et la frame témoin interdit une republication différée masquée. Le
 mutant a été retiré sans changement produit.
 
+La contre-revue lifecycle `ed00c08` a ensuite montré que les deux pompes
+explicites du même oracle masquaient à elles seules la suppression de
+`_scheduleNotification()` dans `_remove` : C valait déjà 50 et la seconde
+pompe forçait tout de même la synchronisation. Le commit `44435ce` exige donc
+`hasScheduledFrame == true` immédiatement après la pompe qui retire B, avant
+la pompe de synchronisation, tout en conservant l'assertion finale à `false`.
+Le produit est vert sur les deux SDK. Le mutant sans planification devient
+rouge sur les deux SDK avec `Expected: true, Actual: false`; il a été retiré
+sans aucun changement produit.
+
 La seconde était produit : `oldWidget.group != widget.group` consultait
 l'égalité surchargée de deux contrôleurs. Le test utilise deux sous-classes
 distinctes mais égales, transfère A de g1 à g2, puis change son rapport de 20 à
@@ -261,7 +273,9 @@ ont été supprimées après usage. Le ciblage explicite lifecycle/leak représe
 - `713be70` — `fix: compare group controllers by identity` ;
 - `d2bcdc9` — `docs: record lot 5 review fixes` ;
 - `2f87be2` — `test: observe retained group report before republish` ;
-- commit suivant — mise à jour du journal après contre-revue projection.
+- `1794808` — `docs: record strict group report oracle` ;
+- `44435ce` — `test: require group removal notification frame` ;
+- commit suivant — mise à jour du journal après contre-revue lifecycle.
 
 ## Limites et risques transmis
 
