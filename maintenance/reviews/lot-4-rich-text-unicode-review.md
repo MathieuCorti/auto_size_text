@@ -4,7 +4,13 @@ Date : 2026-09-01
 
 Branche revue : `codex/review-rich-text-unicode`
 
-Candidat : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
+Candidat fonctionnel : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
+
+Correctif performance contre-revu :
+`413ea87b156c2512f01fe39cc2bad524eca9b333`, cherry-pické dans cette branche
+sous `dbe1a18`.
+
+Tête finale revue : `dbe1a18`
 
 Parent exact : `3a1c343e88325b0020452be7c3258a902d87558f`
 
@@ -14,7 +20,8 @@ push ou changement distant n'a été effectué.
 
 ## Verdict
 
-**ACCEPTÉ** pour le périmètre Unicode et sémantique.
+**ACCEPTÉ** pour le périmètre Unicode et sémantique, y compris après le
+correctif de snapshot de segmentation.
 
 Aucun défaut fonctionnel n'a été confirmé dans ce périmètre. Les offsets
 restent des code units UTF-16, les plages liées NBSP/NNBSP sont mesurées par la
@@ -27,9 +34,11 @@ individuellement mal formés signalent chacun un `ArgumentError` dans Flutter
 3.41.0 comme dans Flutter 3.47.2. La fixture reste donc exclue, conformément à
 l'oracle corrigé.
 
-Le budget de calcul et d'allocations de la segmentation fait l'objet de la
-revue performance indépendante du lot 4. Le présent verdict ne se substitue
-pas à cette gate parallèle.
+Le correctif performance lève le risque antérieurement signalé :
+`toPlainText(includeSemanticsLabels: false)` et le scan des plages sont
+effectués une seule fois par calcul de taille, pas une fois par candidat. La
+contre-revue n'a trouvé aucune dérive Unicode, sémantique ou d'état entre
+pumps.
 
 ## Spécifications et sources relues
 
@@ -74,6 +83,14 @@ Les cinq fichiers modifiés par `3a1c343..719d6a8` ont été lus complètement :
 - `test/rich_text_test.dart` ;
 - `test/wrap_words_test.dart`.
 
+Les quatre fichiers modifiés par le correctif `ab532aa..dbe1a18` ont aussi été
+lus complètement :
+
+- `lib/src/auto_size_text.dart` ;
+- `lib/src/auto_size_text_layout.dart` ;
+- `maintenance/implementation/lot-4-rich-text.md` ;
+- `test/wrap_words_test.dart`.
+
 La surface d'attaque se limite aux paramètres publics du widget et à l'arbre
 `InlineSpan` fourni par l'appelant. Le diff n'ajoute ni entrée réseau, ni accès
 fichier, ni base de données, ni authentification, ni session, ni cryptographie,
@@ -81,6 +98,29 @@ ni secret. Les validations numériques amont restent actives ; les painters
 créés dans les chemins modifiés sont libérés en `finally`.
 
 ## Vérification du comportement produit
+
+### Snapshot de segmentation après correctif performance
+
+`_UnbreakableTextSnapshot` est créé localement dans chaque appel à
+`_calculateFontSize`, immédiatement après la construction du span de mesure
+courant. Il n'est ni stocké dans le `State`, ni partagé entre builds. Une
+nouvelle instance est donc calculée après chaque changement de span, de label
+sémantique porté par le widget, de configuration ou d'override hérité.
+
+Le snapshot conserve uniquement une liste non modifiable de `TextRange`. Sa
+chaîne source provient de
+`measurementTextSpan.toPlainText(includeSemanticsLabels: false)` ; les labels
+sémantiques restent ainsi exclus et les offsets restent ceux des code units
+UTF-16 du même arbre visuel que celui remis au painter. Le chemin texte simple
+construit l'équivalent `TextSpan(text: data)`. Pour le texte riche, l'absence
+du parent synthétique dans le scan est neutre : ce parent n'ajoute aucun texte
+et possède le span source comme unique enfant.
+
+Chaque candidat réutilise les plages, mais mesure toujours le painter riche
+reconstruit avec le candidat courant. Aucun recognizer, callback, curseur,
+locale, identifiant sémantique, `spellOut` ou objet de span n'est stocké ou
+réécrit dans le snapshot. La source, y compris ses listes non modifiables,
+reste inchangée.
 
 ### Arbre riche et scaling par run
 
@@ -183,6 +223,24 @@ les trois replays ont échoué séparément au témoin prévu :
 
 Les copies mutantes et le fichier de probes ont été supprimés.
 
+## Contre-probes indépendants du snapshot
+
+Après le correctif performance, un second fichier temporaire de trois widget
+probes a été écrit indépendamment des tests du candidat, exécuté sur les deux
+SDK, puis supprimé :
+
+| Contre-probe | Flutter 3.41.0 | Flutter 3.47.2 |
+|---|---:|---:|
+| Comptage exact : 0 scan avec `wrapWords`, 1 sinon, puis 1 nouveau scan après chaque changement d'override, label ou span | vert | vert |
+| NBSP/NNBSP, bidi multi-box, emoji et combining avec offsets UTF-16 ; labels sémantiques inversés exclus | vert | vert |
+| Recognizer, souris, curseur, identifiant, locale et spell-out réels après override et rebuild ; source non modifiée | vert | vert |
+
+Résultat : **3/3** sur chaque SDK exact. Le compteur personnalisé confirme que
+chaque appel se fait avec `includeSemanticsLabels: false`. Un remplacement du
+span contenant U+00A0 par un nouveau span contenant U+202F et deux overrides
+successifs déclenchent chacun leur propre snapshot, sans réemploi de l'état
+précédent.
+
 ## Matrice finale du candidat propre
 
 Toolchains exactes :
@@ -194,8 +252,8 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 
 | Contrôle | Flutter 3.41.0 | Flutter 3.47.2 |
 |---|---:|---:|
-| `test/rich_text_test.dart test/wrap_words_test.dart` | 20/20 | 20/20 |
-| suite racine complète | 95/95 | 95/95 |
+| `test/rich_text_test.dart test/wrap_words_test.dart` | 21/21 | 21/21 |
+| suite racine complète | 96/96 | 96/96 |
 | analyse fatale scoped `lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
 
 La résolution locale a été remise à Flutter 3.47.2 après la matrice. Aucun
@@ -205,15 +263,17 @@ fichier suivi autre que le présent rapport n'est modifié par la revue.
 
 - Injection, XSS, authentification, autorisation, CSRF, session et
   cryptographie : surfaces absentes du diff.
-- Race/état : aucun cache ni mutation de source introduit ; rebuilds avec
-  changements d'override ont été exercés.
+- Race/état : aucun cache inter-build ni mutation de source introduit ; les
+  changements de span, label, configuration et override entre pumps ont été
+  exercés.
 - Divulgation : l'erreur `WidgetSpan` ne contient ni donnée sensible ni contenu
   appelant.
 - Logique métier : Unicode, bidi, scaling non linéaire, zéro, replacement,
   métadonnées et clé ont été vérifiés par le rendu réel.
-- Disponibilité : la correction fonctionnelle des plages est couverte ici ; le
-  budget de scan, painters et requêtes de boxes est réservé à la revue
-  performance parallèle.
+- Disponibilité : le texte aplati et les plages sont hoistés une fois par
+  configuration de calcul ; les candidats ne refont plus le scan. Les requêtes
+  de boxes restent nécessaires par candidat puisqu'elles dépendent du layout
+  à la taille testée.
 
 Non vérifié dans cette spécialité : benchmark mural, compteur d'allocations,
 intrinsics/dry layout, support réel de `WidgetSpan`, appareils physiques et
