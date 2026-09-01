@@ -7,82 +7,65 @@ Branche revue : `codex/review-gate-core-fix`
 Base exacte S6 : `b07066ffe321dff059c9d7d8008b2713e30e1aee`
 
 Tip produit, tests et journal revu :
-`9ec35e9f1481d346c7df5516de618b151de95097`
+`17d9a35bd232b6678cb3daa11ee571119411f5d8`
 
-Plage relue : `b07066f...9ec35e9`
+Plage relue : `b07066f...17d9a35`
 
 ## Verdict
 
-**CHANGEMENTS REQUIS**
+**ACCEPTÉ**
 
-La correction produit de maintenance incrémentale du minimum est correcte.
-Je n'ai trouvé aucun P0, P1 ou P2 dans `AutoSizeGroup`, aucune dérive de
+La correction produit de maintenance incrémentale du minimum reste correcte.
+Je n'ai trouvé aucun P0, P1, P2 ou P3 à la tête finale, aucune dérive de
 `L/P/G/R`, de callback, de transfert ou d'API, et aucun revert produit n'est
 justifié.
 
-Un P3 du harness reste toutefois ouvert. Quand `wrapWords` vaut `false` et
-que le `Text` témoin a `maxLines == null`, `doesTextFit` laisse désormais le
-`TextPainter` accepter les coupures d'urgence à l'intérieur d'un mot. Le
-helper peut donc déclarer qu'un texte tient alors que le produit le refuse.
-Le nouveau test couvre seulement la branche où `maxLines` est non nul, et le
-journal décrit à tort la branche nulle comme correcte. Une correction limitée
-au harness, à sa régression et au journal suffit pour rendre cette tête
-acceptable ; aucun changement produit n'est demandé par cette revue.
+Le P3 de la première passe sur `wrapWords:false/maxLines:null` est clos par
+`9431a03` et `353e994`. Le signal externe sur la fidélité du harness est lui
+aussi clos : le helper ne reconstruit plus un `TextPainter` à partir d'un
+`Text` source incomplet, mais à partir du `RenderParagraph` monté et résolu par
+Flutter. Tous ses appelants ont été migrés. `17d9a35` consigne correctement
+ces deux reprises sans toucher au produit ni aux tests de groupe.
 
 ## Findings ordonnés
 
 - P0 : aucun.
 - P1 : aucun.
 - P2 : aucun.
-- P3 : un finding harness/documentation ouvert.
+- P3 : aucun.
 
-### P3 — `wrapWords:false` devient inexact lorsque `maxLines` est nul
+### P3 précédent — clos
 
-**Fichiers :**
+La première passe avait prouvé qu'un mot Ahem trop large, avec
+`wrapWords:false` et `maxLines:null`, était refusé par le produit mais accepté
+par l'ancien helper. La régression permanente de
+`test/text_fit_oracle_test.dart` monte maintenant un vrai `Text`, vérifie que
+le `RenderParagraph` résolu conserve `maxLines == null`, puis exige le refus de
+la coupure d'urgence.
 
-- `test/utils.dart:18-21` ;
-- couverture actuelle : `test/maxlines_test.dart:62-73` ;
-- claim : `maintenance/implementation/gate-core-fixes.md:92-98`.
+`renderParagraphFits` mesure chaque plage indivisible sur un painter sans
+largeur maximale, indépendamment de la limite publique de lignes. Le mutant
+qui supprime cette mesure rend le nouveau test rouge avec
+`Expected: false, Actual: true`. Le cas non nul reste couvert séparément par
+`test/maxlines_test.dart` : omettre `paragraph.maxLines` du painter de
+paragraphe donne le même échec. Le finding et son claim documentaire sont donc
+clos sans modification produit.
 
-**Problème.** Le helper calcule une borne dérivée du nombre de mots seulement
-si `text.maxLines` est non nul :
+### Signal externe P2 du harness — clos
 
-```dart
-var maxLines = text.maxLines;
-if (!wrapWords && maxLines != null) {
-  final wordCount = span.toPlainText().split(RegExp('\\s+')).length;
-  maxLines = maxLines.clamp(1, wordCount);
-}
-```
+L'ancien `doesTextFit(Text, ...)` reconstruisait seulement une partie de la
+configuration et pouvait diverger du widget réel sur la direction et le
+scaler ambiants, le strut résolu, la locale, `textWidthBasis`,
+`textHeightBehavior`, le soft-wrap, l'overflow et les contraintes. Il pouvait
+aussi masquer `maxLines:0` en le clampant dans une valeur autorisée.
 
-Pour `wrapWords:false`, cette borne n'est pas la limite publique de lignes du
-widget. Elle sert à détecter qu'un mot a subi une coupure d'urgence : un mot
-doit occuper au plus une ligne, deux mots au plus deux lignes, etc. Même si le
-nombre public de lignes est illimité, laisser le painter envelopper un mot sur
-plusieurs lignes donne un faux positif au helper.
-
-**Preuve indépendante.** Un probe temporaire a utilisé `AAAA` en Ahem 10,
-une largeur 20, un preset unique 10, `wrapWords:false` et aucun `maxLines`.
-Le vrai `AutoSizeText` a monté son `overflowReplacement`, donc son fit local
-était faux. Le même témoin passé à
-`doesTextFit(text, 20, double.infinity, false)` a renvoyé `true`. Le test
-temporaire est devenu rouge sur Flutter 3.41.0 avec
-`Expected: false, Actual: true`, après avoir déjà prouvé que le replacement
-produit était monté.
-
-Le test permanent ajouté à `maxlines_test.dart` utilise au contraire
-`maxLines: 4`. Il tue bien le mutant qui continue à passer
-`text.maxLines` au `TextPainter` (`Expected: false, Actual: true`), mais il ne
-peut pas exécuter la branche `maxLines == null` de la nouvelle garde. Le test
-« unlimited lines » porte sur le widget avec `wrapWords:true` par défaut et ne
-ferme pas davantage ce cas.
-
-**Correction suggérée.** Lorsque `wrapWords` est faux, dériver la borne depuis
-le nombre de mots même si la limite publique est nulle, par exemple avec
-`(maxLines ?? wordCount).clamp(1, wordCount)`. Ajouter une régression permanente
-qui compare le helper à un `AutoSizeText` avec replacement pour un mot Ahem
-trop large et `maxLines:null`, puis corriger le paragraphe du journal. Cette
-modification reste exclusivement dans le harness et la documentation.
+Le nouveau témoin reçoit un `RenderParagraph` produit par un `Text` réellement
+monté. `_resolvedTextPainter` transmet toutes les propriétés de mesure
+résolues ; le verdict utilise les contraintes effectives du render object.
+`maxLines:0` est désormais rejeté par l'assertion publique de Flutter avant
+l'appel du helper. Les sept appels de `renderParagraphFits` couvrent les deux
+bornes de lignes, la sélection de preset, le cycle de vie des painters et les
+configurations ambiantes. Aucun appel à `doesTextFit` ne subsiste.
 
 ## Invariant du minimum de groupe
 
@@ -194,27 +177,36 @@ dans ces tests. La preuve de coût reste à juste titre un probe retiré : ajout
 une API ou des compteurs produit permanents pour la seule performance serait
 une moins bonne frontière.
 
-### Dettes maxLines et whitespace
+### Dettes maxLines, témoin résolu et whitespace
 
 Le test auparavant vide de `maxLines == null` monte maintenant un vrai
 paragraphe Ahem multi-ligne, exige une hauteur supérieure à une ligne et
 `didExceedMaxLines == false`. Il est substantiel.
 
-Le test du helper avec `maxLines:4` est lui aussi discriminant : remettre
-`maxLines: text.maxLines` dans le painter donne `true` au lieu de `false`.
-Il ferme la moitié non nulle du bug historique. Le P3 ci-dessus montre que la
-nouvelle garde nulle et son claim documentaire ne sont pas encore corrects.
+Le test du helper avec `maxLines:4` est lui aussi discriminant : omettre
+`paragraph.maxLines` du painter donne `true` au lieu de `false`. La régression
+`maxLines:null` tue séparément la suppression de la mesure des plages
+indivisibles. Les deux branches du bug historique sont donc closes.
+
+Les anciens appels de sélection des presets, de forwarding de `maxLines` et
+de cycle de vie ont tous été migrés vers le paragraphe monté. Le nouveau fichier
+`text_fit_oracle_test.dart` vérifie aussi le rejet de zéro et les valeurs
+résolues de direction, locale, scaler, largeur/hauteur de texte et strut. Les
+mutants scaler et strut sont rouges ; les deux painters restent libérés dans
+des `finally`.
 
 Les deux espaces finaux de l'oracle candidat sont effectivement les seuls
-changements de ce document. `git diff --check b07066f...9ec35e9` et le diff
+changements de ce document. `git diff --check b07066f...17d9a35` et le diff
 courant sont propres.
 
 ## Probes et mutants temporaires
 
 Toute instrumentation a été retirée avant la matrice officielle. Les blobs de
-`lib/src/auto_size_group.dart` et `test/utils.dart` ont ensuite été comparés à
-la tête : respectivement `6f108ad35e12615994d95a5c0834914aa8d26186` et
-`789e6de8ae51b2604cf884f2169297309b10e859`.
+`lib/src/auto_size_group.dart`, `test/utils.dart` et
+`test/text_fit_oracle_test.dart` ont ensuite été comparés à la tête :
+respectivement `6f108ad35e12615994d95a5c0834914aa8d26186`,
+`b937e06138f04b51e7dca044bd02fcb148f8fb96` et
+`bb067ffffb665e2227e77ff29e5f9b4778bbad38`.
 
 ### Probes verts
 
@@ -236,7 +228,9 @@ et deux compteurs de `_recalculateFontSize`. Il a passé sur Flutter 3.41.0 et
 
 ### Mutants rouges
 
-Les mutants ont été appliqués séparément sous Flutter 3.41.0 puis retirés :
+Les cinq mutants de la première passe ont été appliqués séparément sous
+Flutter 3.41.0. Les quatre mutants du témoin final ont été rejoués sous
+Flutter 3.47.2. Tous ont été retirés :
 
 | Mutant | Rouge observé |
 |---|---|
@@ -244,11 +238,15 @@ Les mutants ont été appliqués séparément sous Flutter 3.41.0 puis retirés 
 | affecter directement la nouvelle valeur du minimum sans traiter les ties | attendu `20/20/20/20`, obtenu `30/20/30/30` |
 | rescanner après chaque publication | attendu `0/0`, obtenu `1/4` lors d'une hausse non minimale |
 | rescanner après chaque retrait | attendu `0/0`, obtenu `1/3` au retrait non minimal |
-| repasser `text.maxLines` au painter du helper | attendu `false`, obtenu `true` dans le nouveau test permanent |
+| repasser `text.maxLines` à l'ancien helper | attendu `false`, obtenu `true` avec `maxLines:4` |
+| supprimer la mesure des plages indivisibles | attendu `false`, obtenu `true` avec `wrapWords:false/maxLines:null` |
+| omettre `paragraph.maxLines` du painter | attendu `false`, obtenu `true` avec `maxLines:4` |
+| remplacer le scaler résolu par `TextScaler.noScaling` | attendu `false`, obtenu `true` |
+| omettre le strut résolu | attendu `false`, obtenu `true` sous la borne de hauteur serrée |
 
-Le probe supplémentaire du finding P3 n'est pas un mutant : il compare le
-produit et le helper intacts et met en évidence leur divergence réelle pour
-`wrapWords:false/maxLines:null`.
+Le probe initial produit/helper documente l'écart désormais fermé. Sur la tête
+finale, les deux régressions permanentes le remplacent avec une frontière de
+témoin indépendante et des mutants explicitement rouges.
 
 ## Matrice indépendante
 
@@ -262,11 +260,12 @@ Flutter 3.41.0 • revision 44a626f4f0 • Dart 3.11.0
 | Contrôle | 3.47.2 | 3.41.0 naturel | 3.41.0 downgradé |
 |---|---:|---:|---:|
 | résolution racine | PASS | PASS | PASS, 9 dépendances abaissées |
-| format `lib test example` | PASS, 27 fichiers | non autoritatif | non autoritatif |
-| analyse fatale `lib test` | PASS | PASS | couvert avant downgrade |
-| analyse fatale de l'exemple | PASS, lock forcé | PASS, résolution naturelle isolée | non requis |
-| ciblés Gate Cœur | 35/35 | 35/35 | inclus dans la suite complète |
-| suite complète | 121/121 | 121/121 | 121/121 |
+| résolution exemple | PASS | PASS | PASS, 1 dépendance abaissée |
+| format `lib test example/main.dart` | PASS, 28 fichiers inchangés | non autoritatif | non autoritatif |
+| analyse fatale `lib test example/main.dart` | PASS | PASS | PASS |
+| analyse fatale de l'exemple | PASS | PASS | PASS |
+| ciblés harness, groupes et fuites | 50/50 | 50/50 | 50/50 |
+| suite complète | 125/125 | 125/125 | 125/125 |
 | probes état/complexité/+∞ | 3/3 | 3/3 | non requis |
 
 Les ciblés étaient :
@@ -275,28 +274,33 @@ Les ciblés étaient :
 test/group_minimum_maintenance_test.dart
 test/group_constraints_test.dart
 test/group_test.dart
+test/group_builder_test.dart
 test/maxlines_test.dart
+test/preset_font_sizes_test.dart
+test/text_fit_oracle_test.dart
 test/text_painter_lifecycle_test.dart
 test/leak_tracking_test.dart
 ```
 
-Le lock haut de l'exemple n'est pas consommable tel quel par la pin minimale :
-la tentative forcée annonce correctement deux downgrades nécessaires. La
-résolution naturelle minimale a donc été exécutée dans une extraction exacte
-temporaire de `9ec35e9`, sans recopier son lock. L'analyse y est verte. Le lock
-canonique reste byte-identique, SHA-256
+Les résolutions minimale naturelle et downgradée ont modifié seulement les
+locks de travail générés. Le lock canonique de l'exemple a été restauré depuis
+la tête puis comparé byte à byte ; son SHA-256 reste
 `115848ebae231fd23d59e6f2d5945b59016605d8b14fb4b7f23de2ad8916b1f7`.
 
 ## Surface lue intégralement
 
-Les six fichiers du diff ont été relus entièrement :
+Les neuf fichiers produit, tests et journal de `b07066f...17d9a35` ont été
+relus entièrement, ainsi que le rapport de première passe :
 
 1. `lib/src/auto_size_group.dart` ;
 2. `maintenance/decisions/candidate-domain-oracle.md` ;
 3. `maintenance/implementation/gate-core-fixes.md` ;
 4. `test/group_minimum_maintenance_test.dart` ;
 5. `test/maxlines_test.dart` ;
-6. `test/utils.dart`.
+6. `test/preset_font_sizes_test.dart` ;
+7. `test/text_fit_oracle_test.dart` ;
+8. `test/text_painter_lifecycle_test.dart` ;
+9. `test/utils.dart`.
 
 Le contexte interactif suivant a aussi été lu intégralement :
 
@@ -308,7 +312,8 @@ Le contexte interactif suivant a aussi été lu intégralement :
 - les rapports `lot-5-groups-review.md`,
   `lot-5-groups-lifecycle-review.md`,
   `lot-5-groups-projection-review.md` et `lot-5-groups-assembly.md` ;
-- `test/group_constraints_test.dart` et `test/group_test.dart` ;
+- `test/group_constraints_test.dart`, `test/group_test.dart`,
+  `test/group_builder_test.dart` et `test/wrap_words_test.dart` ;
 - les skills `find-bugs` et `developing-flutter`, avec les cinq références de
   ce dernier.
 
@@ -336,9 +341,9 @@ Checklist complète :
   non minimale ; O(M) uniquement lorsqu'un minimum peut monter ; aucune
   structure auxiliaire ou allocation proportionnelle nouvelle ;
 - **logique métier** : invariant de `G`, ties, `+∞`, invalides, dernier membre,
-  coalescence et `L/P/G/R` vérifiés ; finding P3 limité au helper de test ;
-- **ressources** : aucun nouveau painter produit ; le painter du helper reste
-  libéré dans `finally`, et les suites lifecycle/leak sont vertes.
+  coalescence et `L/P/G/R` vérifiés ; aucun finding résiduel ;
+- **ressources** : aucun nouveau painter produit ; les deux painters du helper
+  sont libérés dans `finally`, et les suites lifecycle/leak sont vertes.
 
 Le navigateur/web et l'AOT n'ont pas été rejoués : ils ne font pas partie de la
 matrice Gate Cœur demandée et le delta produit n'introduit aucune conversion
@@ -347,8 +352,9 @@ n'est restée non vérifiée.
 
 ## Nettoyage
 
-Les compteurs, getters de probe, test temporaire et cinq mutants ont été
-supprimés. Les `.dart_tool`, builds, lock racine généré et extraction minimale
-ont été supprimés. Avant création du présent rapport, `git status` était propre,
-`git diff --check` passait et le lock suivi de l'exemple conservait son hash.
+Les compteurs, getters de probe, tests temporaires et neuf mutants ont été
+supprimés. Les `.dart_tool`, builds et lock racine généré ont été supprimés.
+Avant mise à jour du présent rapport, `git status` était propre,
+`git diff --check` passait, les fichiers produit et groupes étaient
+byte-identiques à `9ec35e9`, et le lock suivi de l'exemple conservait son hash.
 Le commit de revue doit contenir uniquement ce document.
