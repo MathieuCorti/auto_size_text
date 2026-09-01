@@ -24,6 +24,8 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
 - passage de la configuration après overrides au `TextPainter`, mais de la
   configuration avant overrides au `Text` final, accompagnée du scaler
   candidat afin que Flutter n'applique chaque override qu'une fois ;
+- maintien strict de la publication de tailles effectives et du rendu sans
+  rescaling dans les groupes, comme sur le parent S3 ;
 - migration des painters du package vers l'API moderne `textScaler`.
 
 Hors périmètre : runs `RichText`, sémantique complète de référence zéro et
@@ -38,6 +40,8 @@ NBSP (lot 4), groupes hétérogènes (lot 5), intrinsics/render personnalisé,
 - `test/utils.dart` ;
 - `test/text_scaler_test.dart` ;
 - `test/effective_text_configuration_test.dart` ;
+- trois TTF de métriques sous-ensembles et leurs deux licences sous
+  `test/assets/fonts/` ;
 - présent journal.
 
 ## Contrat du scaler
@@ -101,6 +105,69 @@ Les tests n'ont donc pas été rendus rouges par une attente artificielle : ils
 comparent le candidat attendu par l'oracle et les métriques réelles de
 `RenderParagraph`.
 
+## Correctifs après les deux revues indépendantes
+
+Les revues `9b948ea` et `02dd06d` ont demandé un correctif produit et deux
+renforcements de preuves, sans élargir le lot.
+
+### Sémantique historique des groupes
+
+Une régression permanente a d'abord été exécutée sur `cac342c`. Deux membres
+utilisaient respectivement le facteur historique 1 avec le preset `[20]` et le
+facteur 2 avec le preset `[15]`. Le résultat était rouge exactement pour la
+cause signalée : `[15, 30]` au lieu des tailles effectives historiques
+`[20, 20]`.
+
+Le résultat de recherche transporte désormais à nouveau sa taille effective.
+Le groupe publie cette valeur, choisit le minimum effectif et chaque texte
+simple groupé le rend avec `TextScaler.noScaling`, comme le parent. Aucune
+projection de domaine ou convergence hétérogène du lot 5 n'est introduite.
+
+### Fixtures de métriques déterministes
+
+Les tests chargent une fois, via `File`, `ByteData.sublistView` et
+`FontLoader`, trois sous-ensembles privés versionnés :
+
+| Fixture | Taille | SHA-256 |
+|---|---:|---|
+| Roboto regular `w400` | 2 660 octets | `893780a2a9c1b15a9ee784b1e34568ff755d3ff9815c9fa755febe303d7bd9c1` |
+| Roboto bold `w700` | 2 632 octets | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` |
+| Noto Naskh Arabic avec `locl` | 5 212 octets | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` |
+
+Les Roboto proviennent des artefacts Flutter identiques des deux SDK et sont
+sous Apache-2.0. Noto Naskh provient de la fixture engine identique des deux
+SDK et reste sous OFL-1.1. Les licences complètes sont adjacentes. Les binaires
+ne sont pas déclarés au manifeste : ils n'entrent pas dans le bundle client.
+
+Chaque cas prouve sa divergence avant le widget : `MMMMMM` choisit 30 en
+`w400` mais 29 en `w700`; `<<<<<<` choisit 30 en LTR mais 29 en RTL ; six
+U+066C choisissent 30 en locale `ar` mais 26 en `fa` grâce à `locl`; `Hg` à
+`height: 3` mesure 90 avec le comportement normal contre 35 avec ascent et
+descent externes désactivés, et choisit respectivement 20 et 30 dans une boîte
+de hauteur 60. Les tests comparent aussi `textSize`, `didExceedMaxLines`, les
+métriques de ligne et, pour la hauteur, la baseline sèche du vrai
+`RenderParagraph`. Le remplacement non additif d'une entrée `w900` par `w700`
+reste couvert séparément.
+
+### Rouges par mutations isolées de `cac342c`
+
+L'archive jetable
+`/private/tmp/auto-size-text-lot3-review-red.N47WFL/mutant` a reçu les tests
+finaux puis une seule mutation à la fois. Supprimer le gras de la mesure donne
+30 au lieu de 29 ; forcer LTR donne 30 au lieu de 29 ; ignorer la locale
+héritée donne 30 au lieu de 26 ; ignorer `TextHeightBehavior` donne 20 au lieu
+de 30. Les quatre cas sont rouges pour leur assertion de candidat, avant toute
+inspection de propriété.
+
+Le scaler plateau permanent rend 42 dans tous les cas. Il produit pourtant
+cinq scalers composés dont source, candidat ou référence varient isolément.
+Retirer séparément chacun des trois champs de `==`, puis de `hashCode`, a
+produit six exécutions rouges. Avec les trois champs présents, deux
+reconstructions identiques sont égales et ont le même hash, alors que les trois
+variations restent inégales et possèdent ici des hashes distincts. Aucun type
+privé ni API de test n'est exposé : les scalers sont lus sur le
+`RenderParagraph` réellement rendu.
+
 ## Preuves vertes
 
 Toolchains exactes :
@@ -116,25 +183,26 @@ Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
 |---|---|
 | format `lib test example`, contrôle `--output=none --set-exit-if-changed` | 24 fichiers, 0 changement |
 | analyse scoped fatale `lib test example/main.dart` | aucun diagnostic ; les 9 informations historiques ont disparu |
-| `test/text_scaler_test.dart test/effective_text_configuration_test.dart` | 16/16 |
-| suite racine complète | 72/72 |
+| `test/text_scaler_test.dart test/effective_text_configuration_test.dart` | 21/21 |
+| suite racine complète | 77/77 |
 | suites explicites cycle de vie/leak | 9/9 |
 | exemple : `pub get --enforce-lockfile`, analyse fatale | succès, aucun diagnostic |
 
 ### Flutter 3.41.0
 
 L'état final a été copié dans
-`/private/tmp/auto-size-text-lot3-final-min.e53bES/repo`, sans `.git`, locks ni
-répertoires générés avant résolution.
+`/private/tmp/auto-size-text-lot3-review-final-min.m0aa19/repo`, sans `.git`,
+locks ni répertoires générés avant résolution.
 
 | Commande | Résultat |
 |---|---|
 | `flutter pub get` racine | succès, 26 dépendances résolues naturellement |
 | analyse scoped fatale `lib test example/main.dart` | aucun diagnostic |
-| deux suites ciblées du lot | 16/16 |
-| suite racine complète | 72/72 |
+| deux suites ciblées du lot | 21/21 |
+| suite racine complète | 77/77 |
+| suites explicites cycle de vie/leak | 9/9 |
 | exemple sans lock : `flutter pub get`, analyse fatale | succès ; `meta 1.17.0`, `vector_math 2.2.0`, aucun diagnostic |
-| `flutter pub downgrade`, puis suite complète | 9 dépendances abaissées ; 72/72 |
+| `flutter pub downgrade`, puis suite complète | 9 dépendances abaissées ; 77/77 |
 
 Le contrôle statique du code produit ne trouve ni appel à
 `MediaQuery.textScaleFactorOf`, ni `textScaleFactor` sur un `TextPainter`, ni
@@ -147,24 +215,23 @@ La suite scaler couvre les deux constructeurs constants, l'exclusion mutuelle
 en assertion et au runtime, l'absence de scaler explicite, le scaler ambiant,
 `noScaling`, les scalers linéaire et non linéaire, l'ancien facteur, la priorité
 explicite, les sorties non finies ou négatives, le changement entre pumps,
-l'égalité/hash du scaler candidat et un groupe homogène sous facteur 2.
+l'égalité/hash isolés du scaler candidat, un groupe homogène sous facteur 2 et
+la conservation `[20, 20]` d'un groupe historique hétérogène.
 
 La suite configuration couvre héritage vrai/faux et fallback, gras `w700`,
 les trois overrides ensemble, isolément et entre pumps, strut 100/hauteur 60,
 `softWrap` hérité et explicite, clip/ellipsis/remplacement, `minWidth` non nul,
-RTL, locale, alignement, `textWidthBasis` et `textHeightBehavior`. Les tests de
-groupe historiques, dont la couverture permanente du scénario #25, restent
-verts dans la suite complète.
+RTL/LTR métriquement distincts, locale `ar/fa` avec substitution `locl`,
+alignement, `textWidthBasis`, hauteur, baseline et les deux sources de
+`textHeightBehavior`. Les tests de groupe historiques, dont la couverture
+permanente du scénario #25, restent verts dans la suite complète.
 
 ## Limites et risques transmis
 
 - la branche riche passe désormais par l'API moderne, mais l'oracle détaillé
   des runs, la référence zéro complète et NBSP restent strictement au lot 4 ;
-- les groupes homogènes conservent leur comportement historique ; la projection
-  entre scalers ou domaines hétérogènes reste au lot 5 ;
-- le test de gras vérifie le `w700` effectif ; le dépôt ne fournit pas de police
-  de fixture garantissant sur toutes les plateformes une largeur différente
-  entre poids ;
+- tous les groupes conservent strictement leur unité effective historique ; la
+  projection entre scalers ou domaines hétérogènes reste au lot 5 ;
 - aucun fichier de démo, CI, exemple, manifeste, lock, documentation publique
   ou version n'est modifié ;
 - aucun merge, push, tag ou changement distant n'est effectué.

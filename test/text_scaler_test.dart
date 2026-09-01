@@ -31,6 +31,26 @@ class _InvalidTextScaler extends TextScaler {
   double get textScaleFactor => 1;
 }
 
+class _PlateauTextScaler extends TextScaler {
+  const _PlateauTextScaler(this.identity);
+
+  final int identity;
+
+  @override
+  double scale(double fontSize) => 42;
+
+  @override
+  double get textScaleFactor => 2;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _PlateauTextScaler && identity == other.identity;
+  }
+
+  @override
+  int get hashCode => identity.hashCode;
+}
+
 class _ConflictingAutoSizeText extends AutoSizeText {
   const _ConflictingAutoSizeText() : super('conflicting');
 
@@ -250,6 +270,58 @@ void main() {
       },
     );
 
+    testWidgets(
+      'should include source, candidate, and reference in scaler equality',
+      (tester) async {
+        const source = _PlateauTextScaler(1);
+
+        Future<TextScaler> renderedScaler({
+          TextScaler textScaler = source,
+          double reference = 20,
+          List<double> presets = const <double>[10],
+        }) async {
+          final paragraph = await _pumpParagraph(
+            tester,
+            child: AutoSizeText(
+              '',
+              style: TextStyle(fontSize: reference),
+              presetFontSizes: presets,
+              textScaler: textScaler,
+            ),
+          );
+          return paragraph.textScaler;
+        }
+
+        final first = await renderedScaler();
+        final identical = await renderedScaler();
+        final differentSource = await renderedScaler(
+          textScaler: const _PlateauTextScaler(2),
+        );
+        final differentCandidate = await renderedScaler(
+          presets: const <double>[15],
+        );
+        final differentReference = await renderedScaler(reference: 30);
+
+        expect(identical, first);
+        expect(identical.hashCode, first.hashCode);
+        expect(differentSource, isNot(first));
+        expect(differentCandidate, isNot(first));
+        expect(differentReference, isNot(first));
+        expect(differentSource.hashCode, isNot(first.hashCode));
+        expect(differentCandidate.hashCode, isNot(first.hashCode));
+        expect(differentReference.hashCode, isNot(first.hashCode));
+        expect(
+          <TextScaler>[
+            first,
+            differentSource,
+            differentCandidate,
+            differentReference,
+          ].map((scaler) => scaler.scale(20)),
+          everyElement(42),
+        );
+      },
+    );
+
     testWidgets('should preserve homogeneous groups with linear scaling', (
       tester,
     ) async {
@@ -295,5 +367,46 @@ void main() {
       expect(_renderedRootSize(paragraphs[0]), 32);
       expect(_renderedRootSize(paragraphs[1]), 32);
     });
+
+    testWidgets(
+      'should preserve effective sizes for heterogeneous legacy groups',
+      (tester) async {
+        final group = AutoSizeGroup();
+        await _pump(
+          tester,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              AutoSizeText(
+                '',
+                style: const TextStyle(fontSize: 20),
+                presetFontSizes: const <double>[20],
+                // ignore: deprecated_member_use_from_same_package
+                textScaleFactor: 1,
+                group: group,
+              ),
+              AutoSizeText(
+                '',
+                style: const TextStyle(fontSize: 20),
+                presetFontSizes: const <double>[15],
+                // ignore: deprecated_member_use_from_same_package
+                textScaleFactor: 2,
+                group: group,
+              ),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        final paragraphs = tester
+            .renderObjectList<RenderParagraph>(find.byType(RichText))
+            .toList();
+        expect(paragraphs, hasLength(2));
+        expect(
+          paragraphs.map(_renderedRootSize),
+          orderedEquals(<double>[20, 20]),
+        );
+      },
+    );
   });
 }

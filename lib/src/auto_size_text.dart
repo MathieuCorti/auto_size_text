@@ -275,16 +275,19 @@ class _AutoSizeTextState extends State<AutoSizeText> {
           candidates,
         );
 
-        var candidate = result.candidate;
+        double? groupFontSize;
 
         if (widget.group != null) {
-          // Homogeneous groups retain their historical behavior when all
-          // members share the same scaler. Heterogeneous projection belongs to
-          // the dedicated group lot.
-          widget.group!._updateFontSize(this, candidate);
-          candidate = widget.group!._fontSize;
+          // Groups keep publishing effective sizes until the dedicated group
+          // lot defines projection between heterogeneous logical domains.
+          widget.group!._updateFontSize(this, result.effectiveFontSize);
+          groupFontSize = widget.group!._fontSize;
         }
-        final text = _buildText(candidate, configuration);
+        final text = _buildText(
+          result.candidate,
+          configuration,
+          groupFontSize: groupFontSize,
+        );
 
         if (widget.overflowReplacement != null && !result.fits) {
           return widget.overflowReplacement!;
@@ -476,6 +479,7 @@ class _AutoSizeTextState extends State<AutoSizeText> {
 
     return _AutoSizeTextLayoutResult(
       candidate: result.value,
+      effectiveFontSize: _canonicalCandidateZero(effectiveFontSize),
       fits: result.fits,
     );
   }
@@ -558,22 +562,29 @@ class _AutoSizeTextState extends State<AutoSizeText> {
 
   Widget _buildText(
     double candidate,
-    _EffectiveTextConfiguration configuration,
-  ) {
+    _EffectiveTextConfiguration configuration, {
+    double? groupFontSize,
+  }) {
     final referenceFontSize = configuration.referenceFontSize;
-    final candidateScaler = referenceFontSize == 0
-        ? configuration.userScaler
-        : _CandidateTextScaler(
-            source: configuration.userScaler,
-            candidate: candidate,
-            reference: referenceFontSize,
-          );
     if (widget.data != null) {
-      final renderStyle = referenceFontSize == 0
+      final renderStyle = groupFontSize != null
+          ? (configuration.renderStyle ?? const TextStyle()).copyWith(
+              fontSize: groupFontSize,
+            )
+          : referenceFontSize == 0
           ? (configuration.renderStyle ?? const TextStyle()).copyWith(
               fontSize: candidate,
             )
           : configuration.renderStyle;
+      final candidateScaler = groupFontSize != null
+          ? TextScaler.noScaling
+          : referenceFontSize == 0
+          ? configuration.userScaler
+          : _CandidateTextScaler(
+              source: configuration.userScaler,
+              candidate: candidate,
+              reference: referenceFontSize,
+            );
       return Text(
         widget.data!,
         key: widget.textKey,
@@ -591,6 +602,17 @@ class _AutoSizeTextState extends State<AutoSizeText> {
         textHeightBehavior: configuration.textHeightBehavior,
       );
     } else {
+      final candidateScaler = groupFontSize != null
+          ? referenceFontSize == 0
+                ? TextScaler.noScaling
+                : TextScaler.linear(groupFontSize / referenceFontSize)
+          : referenceFontSize == 0
+          ? configuration.userScaler
+          : _CandidateTextScaler(
+              source: configuration.userScaler,
+              candidate: candidate,
+              reference: referenceFontSize,
+            );
       return Text.rich(
         widget.textSpan!,
         key: widget.textKey,

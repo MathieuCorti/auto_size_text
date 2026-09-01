@@ -154,10 +154,12 @@ final class _EffectiveTextConfiguration {
 final class _AutoSizeTextLayoutResult {
   const _AutoSizeTextLayoutResult({
     required this.candidate,
+    required this.effectiveFontSize,
     required this.fits,
   });
 
   final double candidate;
+  final double effectiveFontSize;
   final bool fits;
 }
 

@@ -1,7 +1,138 @@
+import 'dart:io';
+import 'dart:math' as math;
+
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _localeFixtureFamily = 'AutoSizeTextMetricNaskh';
+const _robotoFixtureFamily = 'AutoSizeTextMetricRoboto';
+
+Future<ByteData> _readFont(String path) async {
+  final bytes = await File(path).readAsBytes();
+  return ByteData.sublistView(bytes);
+}
+
+Future<void> _loadMetricFixtures() async {
+  final localeLoader = FontLoader(_localeFixtureFamily)
+    ..addFont(_readFont('test/assets/fonts/auto_size_metric_naskh_locl.ttf'));
+  final robotoLoader = FontLoader(_robotoFixtureFamily)
+    ..addFont(
+      _readFont('test/assets/fonts/auto_size_metric_roboto_regular.ttf'),
+    )
+    ..addFont(_readFont('test/assets/fonts/auto_size_metric_roboto_bold.ttf'));
+
+  await Future.wait(<Future<void>>[localeLoader.load(), robotoLoader.load()]);
+}
+
+final class _PainterWitness {
+  const _PainterWitness({
+    required this.size,
+    required this.baseline,
+    required this.lineWidth,
+    required this.didExceedMaxLines,
+  });
+
+  final Size size;
+  final double baseline;
+  final double lineWidth;
+  final bool didExceedMaxLines;
+}
+
+_PainterWitness _measureWitness({
+  required String text,
+  required TextStyle style,
+  BoxConstraints constraints = const BoxConstraints(),
+  TextDirection direction = TextDirection.ltr,
+  Locale? locale,
+  TextHeightBehavior? heightBehavior,
+  TextAlign textAlign = TextAlign.start,
+  TextWidthBasis widthBasis = TextWidthBasis.parent,
+  int? maxLines = 1,
+  double? candidate,
+  bool softWrap = true,
+}) {
+  final reference = style.fontSize!;
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textAlign: textAlign,
+    textDirection: direction,
+    textScaler: candidate == null
+        ? TextScaler.noScaling
+        : TextScaler.linear(candidate / reference),
+    maxLines: maxLines,
+    locale: locale,
+    textWidthBasis: widthBasis,
+    textHeightBehavior: heightBehavior,
+  );
+
+  try {
+    painter.layout(
+      minWidth: constraints.minWidth,
+      maxWidth: softWrap ? constraints.maxWidth : double.infinity,
+    );
+    final line = painter.computeLineMetrics().single;
+    return _PainterWitness(
+      size: painter.size,
+      baseline: painter.computeDistanceToActualBaseline(
+        TextBaseline.alphabetic,
+      ),
+      lineWidth: line.width,
+      didExceedMaxLines: painter.didExceedMaxLines,
+    );
+  } finally {
+    painter.dispose();
+  }
+}
+
+double _largestWitnessCandidate({
+  required String text,
+  required TextStyle style,
+  required BoxConstraints constraints,
+  TextDirection direction = TextDirection.ltr,
+  Locale? locale,
+  TextHeightBehavior? heightBehavior,
+  TextAlign textAlign = TextAlign.start,
+  TextWidthBasis widthBasis = TextWidthBasis.parent,
+  double minFontSize = 10,
+  List<double>? presetFontSizes,
+  bool softWrap = true,
+}) {
+  final reference = style.fontSize!;
+  final candidates =
+      presetFontSizes ??
+      <double>[
+        for (
+          var candidate = reference;
+          candidate >= minFontSize;
+          candidate -= 1
+        )
+          candidate,
+      ];
+  for (final candidate in candidates) {
+    final witness = _measureWitness(
+      text: text,
+      style: style,
+      constraints: constraints,
+      direction: direction,
+      locale: locale,
+      heightBehavior: heightBehavior,
+      textAlign: textAlign,
+      widthBasis: widthBasis,
+      candidate: candidate,
+      softWrap: softWrap,
+    );
+    final constrainedSize = constraints.constrain(witness.size);
+    if (!witness.didExceedMaxLines &&
+        constrainedSize.width >= witness.size.width &&
+        constrainedSize.height >= witness.size.height) {
+      return candidate;
+    }
+  }
+  return minFontSize;
+}
 
 Future<RenderParagraph> _pumpParagraph(
   WidgetTester tester, {
@@ -156,6 +287,8 @@ double _largestFittingCandidate(
 
 void main() {
   group('AutoSizeText effective text configuration', () {
+    setUpAll(_loadMetricFixtures);
+
     testWidgets(
       'should merge inherited styles and preserve the historical fallback',
       (tester) async {
@@ -192,30 +325,101 @@ void main() {
     testWidgets('should replace the effective weight with bold w700', (
       tester,
     ) async {
-      final paragraph = await _pumpParagraph(
+      const text = 'MMMMMM';
+      const sourceStyle = TextStyle(
+        inherit: false,
+        fontFamily: _robotoFixtureFamily,
+        fontSize: 30,
+        fontWeight: FontWeight.w400,
+      );
+      final boldStyle = sourceStyle.copyWith(fontWeight: FontWeight.bold);
+      final sourceWidth = _measureWitness(
+        text: text,
+        style: sourceStyle,
+      ).size.width;
+      final boldWidth = _measureWitness(
+        text: text,
+        style: boldStyle,
+      ).size.width;
+      expect(sourceWidth, isNot(closeTo(boldWidth, 0.01)));
+
+      final width = (sourceWidth + boldWidth) / 2;
+      final constraints = BoxConstraints.tightFor(width: width, height: 100);
+      final sourceCandidate = _largestWitnessCandidate(
+        text: text,
+        style: sourceStyle,
+        constraints: constraints,
+        presetFontSizes: const <double>[30, 29],
+      );
+      final boldCandidate = _largestWitnessCandidate(
+        text: text,
+        style: boldStyle,
+        constraints: constraints,
+        presetFontSizes: const <double>[30, 29],
+      );
+      expect(<double>[
+        sourceCandidate,
+        boldCandidate,
+      ], orderedEquals(<double>[30, 29]));
+
+      var paragraph = await _pumpParagraph(
+        tester,
+        child: SizedBox(
+          width: width,
+          height: 100,
+          child: const AutoSizeText(
+            text,
+            style: sourceStyle,
+            presetFontSizes: <double>[30, 29],
+            maxLines: 1,
+          ),
+        ),
+      );
+      expect(paragraph.text.style!.fontWeight, FontWeight.w400);
+      expect(_rootSize(paragraph), sourceCandidate);
+
+      paragraph = await _pumpParagraph(
         tester,
         mediaQueryData: const MediaQueryData(boldText: true),
-        child: const SizedBox(
-          width: 170,
+        child: SizedBox(
+          width: width,
+          height: 100,
           child: AutoSizeText(
-            'XXXXXX',
-            style: TextStyle(
-              fontFamily: 'Roboto',
-              fontSize: 30,
-              fontWeight: FontWeight.w900,
-            ),
-            minFontSize: 10,
+            text,
+            style: sourceStyle,
+            presetFontSizes: const <double>[30, 29],
             maxLines: 1,
           ),
         ),
       );
 
       expect(paragraph.text.style!.fontWeight, FontWeight.bold);
+      expect(_rootSize(paragraph), boldCandidate);
       _expectPainterMatchesRenderParagraph(
         paragraph,
         referenceFontSize: 30,
         minFontSize: 10,
       );
+    });
+
+    testWidgets('should replace an existing heavy weight exactly with w700', (
+      tester,
+    ) async {
+      final paragraph = await _pumpParagraph(
+        tester,
+        mediaQueryData: const MediaQueryData(boldText: true),
+        child: const AutoSizeText(
+          'MMMMMM',
+          style: TextStyle(
+            inherit: false,
+            fontFamily: _robotoFixtureFamily,
+            fontSize: 30,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+
+      expect(paragraph.text.style!.fontWeight, FontWeight.bold);
     });
 
     testWidgets(
@@ -255,11 +459,7 @@ void main() {
         expect(sourceText.style!.height, 3);
         expect(sourceText.style!.letterSpacing, 2);
         expect(sourceText.style!.wordSpacing, 4);
-        _expectPainterMatchesRenderParagraph(
-          paragraph,
-          referenceFontSize: 30,
-          minFontSize: 10,
-        );
+        _expectPainterMatchesRenderParagraph(paragraph);
 
         paragraph = await _pumpParagraph(
           tester,
@@ -511,52 +711,369 @@ void main() {
     );
 
     testWidgets(
-      'should honor nonzero minWidth, direction, locale, and paragraph defaults',
+      'should measure inherited and explicit direction with different widths',
       (tester) async {
-        const defaultBehavior = TextHeightBehavior(
-          applyHeightToFirstAscent: false,
+        const text = '<<<<<<';
+        const style = TextStyle(
+          inherit: false,
+          fontFamily: _robotoFixtureFamily,
+          fontSize: 30,
         );
+        final ltrWitness = _measureWitness(text: text, style: style);
+        final rtlWitness = _measureWitness(
+          text: text,
+          style: style,
+          direction: TextDirection.rtl,
+        );
+        final ltrWidth = ltrWitness.size.width;
+        final rtlWidth = rtlWitness.size.width;
+        expect(ltrWidth, isNot(closeTo(rtlWidth, 0.01)));
+        expect(
+          ltrWitness.lineWidth,
+          isNot(closeTo(rtlWitness.lineWidth, 0.01)),
+        );
+
+        final width = (ltrWidth + rtlWidth) / 2;
+        final constraints = BoxConstraints.tightFor(width: width, height: 100);
+        final ltrCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          presetFontSizes: const <double>[30, 29],
+          softWrap: false,
+        );
+        final rtlCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          direction: TextDirection.rtl,
+          textAlign: TextAlign.end,
+          widthBasis: TextWidthBasis.longestLine,
+          presetFontSizes: const <double>[30, 29],
+          softWrap: false,
+        );
+        expect(<double>[
+          ltrCandidate,
+          rtlCandidate,
+        ], orderedEquals(<double>[30, 29]));
+
         var paragraph = await _pumpParagraph(
           tester,
           direction: TextDirection.rtl,
-          locale: const Locale('th'),
           defaultAlign: TextAlign.end,
           defaultWidthBasis: TextWidthBasis.longestLine,
-          defaultHeightBehavior: defaultBehavior,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 120, maxWidth: 220),
-            child: const AutoSizeText('ข้อความ'),
+          child: SizedBox(
+            width: width,
+            height: 100,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 29],
+              maxLines: 1,
+              softWrap: false,
+            ),
           ),
         );
         expect(paragraph.textDirection, TextDirection.rtl);
-        expect(paragraph.locale, const Locale('th'));
         expect(paragraph.textAlign, TextAlign.end);
         expect(paragraph.textWidthBasis, TextWidthBasis.longestLine);
-        expect(paragraph.textHeightBehavior, defaultBehavior);
-        expect(paragraph.textSize.width, greaterThanOrEqualTo(120));
-        _expectPainterMatchesRenderParagraph(paragraph, referenceFontSize: 20);
-
-        const explicitBehavior = TextHeightBehavior(
-          applyHeightToLastDescent: false,
+        expect(paragraph.constraints.minWidth, width);
+        expect(_rootSize(paragraph), rtlCandidate);
+        final renderedRtlWitness = _measureWitness(
+          text: text,
+          style: style,
+          constraints: constraints,
+          direction: TextDirection.rtl,
+          textAlign: TextAlign.end,
+          widthBasis: TextWidthBasis.longestLine,
+          candidate: rtlCandidate,
+          softWrap: false,
         );
+        expect(paragraph.textSize, renderedRtlWitness.size);
+        expect(
+          paragraph.didExceedMaxLines,
+          renderedRtlWitness.didExceedMaxLines,
+        );
+        _expectPainterMatchesRenderParagraph(paragraph);
+
         paragraph = await _pumpParagraph(
           tester,
           direction: TextDirection.rtl,
-          locale: const Locale('th'),
-          defaultHeightBehavior: null,
-          ambientHeightBehavior: explicitBehavior,
-          child: const AutoSizeText(
-            'explicit',
-            textDirection: TextDirection.ltr,
-            locale: Locale('en'),
-            textAlign: TextAlign.center,
+          defaultWidthBasis: TextWidthBasis.longestLine,
+          child: SizedBox(
+            width: width,
+            height: 100,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 29],
+              maxLines: 1,
+              softWrap: false,
+              textDirection: TextDirection.ltr,
+              textAlign: TextAlign.center,
+            ),
           ),
         );
         expect(paragraph.textDirection, TextDirection.ltr);
-        expect(paragraph.locale, const Locale('en'));
         expect(paragraph.textAlign, TextAlign.center);
-        expect(paragraph.textHeightBehavior, explicitBehavior);
-        _expectPainterMatchesRenderParagraph(paragraph, referenceFontSize: 20);
+        expect(_rootSize(paragraph), ltrCandidate);
+      },
+    );
+
+    testWidgets(
+      'should measure inherited and explicit locales with localized glyphs',
+      (tester) async {
+        const text = '٬٬٬٬٬٬';
+        const style = TextStyle(
+          inherit: false,
+          fontFamily: _localeFixtureFamily,
+          fontSize: 30,
+        );
+        const arabic = Locale('ar');
+        const farsi = Locale('fa');
+        final arabicWitness = _measureWitness(
+          text: text,
+          style: style,
+          direction: TextDirection.rtl,
+          locale: arabic,
+        );
+        final farsiWitness = _measureWitness(
+          text: text,
+          style: style,
+          direction: TextDirection.rtl,
+          locale: farsi,
+        );
+        final arabicWidth = arabicWitness.size.width;
+        final farsiWidth = farsiWitness.size.width;
+        expect(arabicWidth, isNot(closeTo(farsiWidth, 0.01)));
+        expect(
+          arabicWitness.lineWidth,
+          isNot(closeTo(farsiWitness.lineWidth, 0.01)),
+        );
+
+        final farsiAt26 = _measureWitness(
+          text: text,
+          style: style,
+          direction: TextDirection.rtl,
+          locale: farsi,
+          candidate: 26,
+        ).size.width;
+        final lowerThreshold = math.max(arabicWidth, farsiAt26);
+        expect(lowerThreshold, lessThan(farsiWidth));
+        final width = (lowerThreshold + farsiWidth) / 2;
+        final constraints = BoxConstraints.tightFor(width: width, height: 100);
+        final arabicCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          direction: TextDirection.rtl,
+          locale: arabic,
+          presetFontSizes: const <double>[30, 26],
+          softWrap: false,
+        );
+        final farsiCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          direction: TextDirection.rtl,
+          locale: farsi,
+          presetFontSizes: const <double>[30, 26],
+          softWrap: false,
+        );
+        expect(<double>[
+          arabicCandidate,
+          farsiCandidate,
+        ], orderedEquals(<double>[30, 26]));
+
+        var paragraph = await _pumpParagraph(
+          tester,
+          direction: TextDirection.rtl,
+          locale: farsi,
+          child: SizedBox(
+            width: width,
+            height: 100,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 26],
+              maxLines: 1,
+              softWrap: false,
+            ),
+          ),
+        );
+        expect(paragraph.locale, farsi);
+        expect(_rootSize(paragraph), farsiCandidate);
+        final renderedFarsiWitness = _measureWitness(
+          text: text,
+          style: style,
+          constraints: constraints,
+          direction: TextDirection.rtl,
+          locale: farsi,
+          candidate: farsiCandidate,
+          softWrap: false,
+        );
+        expect(paragraph.textSize, renderedFarsiWitness.size);
+        expect(
+          paragraph.didExceedMaxLines,
+          renderedFarsiWitness.didExceedMaxLines,
+        );
+        _expectPainterMatchesRenderParagraph(paragraph);
+
+        paragraph = await _pumpParagraph(
+          tester,
+          direction: TextDirection.rtl,
+          locale: farsi,
+          child: SizedBox(
+            width: width,
+            height: 100,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 26],
+              maxLines: 1,
+              softWrap: false,
+              locale: arabic,
+            ),
+          ),
+        );
+        expect(paragraph.locale, arabic);
+        expect(_rootSize(paragraph), arabicCandidate);
+
+        paragraph = await _pumpParagraph(
+          tester,
+          direction: TextDirection.rtl,
+          locale: arabic,
+          child: SizedBox(
+            width: width,
+            height: 100,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 26],
+              maxLines: 1,
+              softWrap: false,
+              locale: farsi,
+            ),
+          ),
+        );
+        expect(paragraph.locale, farsi);
+        expect(_rootSize(paragraph), farsiCandidate);
+      },
+    );
+
+    testWidgets(
+      'should measure default and ambient text height behavior metrics',
+      (tester) async {
+        const text = 'Hg';
+        const style = TextStyle(
+          inherit: false,
+          fontFamily: _robotoFixtureFamily,
+          fontSize: 30,
+          height: 3,
+        );
+        const normalBehavior = TextHeightBehavior();
+        const compactBehavior = TextHeightBehavior(
+          applyHeightToFirstAscent: false,
+          applyHeightToLastDescent: false,
+        );
+        final normalWitness = _measureWitness(
+          text: text,
+          style: style,
+          heightBehavior: normalBehavior,
+        );
+        final compactWitness = _measureWitness(
+          text: text,
+          style: style,
+          heightBehavior: compactBehavior,
+        );
+        expect(
+          normalWitness.size.height,
+          isNot(closeTo(compactWitness.size.height, 0.01)),
+        );
+        expect(
+          normalWitness.baseline,
+          isNot(closeTo(compactWitness.baseline, 0.01)),
+        );
+        expect(normalWitness.size.height, closeTo(90, 0.01));
+        expect(compactWitness.size.height, closeTo(35, 0.01));
+
+        const height = 60.0;
+        final constraints = BoxConstraints.tightFor(width: 300, height: height);
+        final normalCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          heightBehavior: normalBehavior,
+          presetFontSizes: const <double>[30, 20],
+        );
+        final compactCandidate = _largestWitnessCandidate(
+          text: text,
+          style: style,
+          constraints: constraints,
+          heightBehavior: compactBehavior,
+          presetFontSizes: const <double>[30, 20],
+        );
+        expect(<double>[
+          normalCandidate,
+          compactCandidate,
+        ], orderedEquals(<double>[20, 30]));
+
+        var paragraph = await _pumpParagraph(
+          tester,
+          defaultHeightBehavior: compactBehavior,
+          ambientHeightBehavior: normalBehavior,
+          child: SizedBox(
+            width: 300,
+            height: height,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 20],
+              maxLines: 1,
+            ),
+          ),
+        );
+        final renderedWitness = _measureWitness(
+          text: text,
+          style: style,
+          constraints: constraints,
+          heightBehavior: compactBehavior,
+          candidate: compactCandidate,
+        );
+        expect(paragraph.textHeightBehavior, compactBehavior);
+        expect(_rootSize(paragraph), compactCandidate);
+        expect(paragraph.textSize, renderedWitness.size);
+        expect(paragraph.didExceedMaxLines, renderedWitness.didExceedMaxLines);
+        expect(
+          paragraph.getDryBaseline(
+            paragraph.constraints,
+            TextBaseline.alphabetic,
+          )!,
+          closeTo(renderedWitness.baseline, 0.01),
+        );
+
+        paragraph = await _pumpParagraph(
+          tester,
+          defaultHeightBehavior: null,
+          ambientHeightBehavior: compactBehavior,
+          child: SizedBox(
+            width: 300,
+            height: height,
+            child: const AutoSizeText(
+              text,
+              style: style,
+              presetFontSizes: <double>[30, 20],
+              maxLines: 1,
+            ),
+          ),
+        );
+        expect(paragraph.textHeightBehavior, compactBehavior);
+        expect(_rootSize(paragraph), compactCandidate);
+        _expectPainterMatchesRenderParagraph(
+          paragraph,
+          referenceFontSize: 30,
+          minFontSize: 10,
+        );
       },
     );
   });
