@@ -6,93 +6,99 @@ Branche revue : `codex/review-rich-text`
 
 Parent exact S4 : `3a1c343e88325b0020452be7c3258a902d87558f`
 
-Candidat exact : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
+Candidat initial : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
 
-Plage revue : `3a1c343...719d6a8`
+Correctif source : `413ea87b156c2512f01fe39cc2bad524eca9b333`
+
+Correctif contre-revu dans ce worktree :
+`482b56e7431130f0d46f2652652120c5c174548a`
+
+Plages revues : `3a1c343...719d6a8`, puis `719d6a8...482b56e`
 
 Périmètre : arbre de mesure et rendu RichText, scaling par run, référence
 racine zéro, overrides de métriques, `wrapWords: false`, UTF-16, bidi,
 NBSP/NNBSP, métadonnées, identité et mutation, `textKey`, replacement,
 frontière transitoire `WidgetSpan`, compatibilité texte simple/groupes legacy,
-cycle de vie et complexité. Aucun correctif produit ou test n'a été écrit par
-la revue ; le présent rapport est son seul livrable.
+cycle de vie et complexité. La contre-revue n'a écrit aucun correctif produit
+ou test ; le présent rapport mis à jour est son seul livrable.
 
 ## Verdict
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
-Le comportement fonctionnel principal du lot est solide et les matrices
-committées passent sur les deux SDK exacts. Le parent synthétique est fidèle,
-le scaler conserve la formule par run `U(S × C / F)`, la branche `F == 0`
-n'invente aucun ratio, le clone des `TextSpan` standards recopie tous les
-champs des SDK ciblés, et le rendu reçoit l'arbre source pré-override. Les
-plages `wrapWords: false` utilisent le texte visuel, des offsets UTF-16 et la
-somme de toutes les boxes ; NBSP/NNBSP, bidi, replacement, `textKey` et la
-frontière `WidgetSpan` se comportent comme prévu.
+Le correctif ferme le seul finding bloquant de la première revue. Le texte
+visuel et ses ranges sont maintenant matérialisés une fois par invocation de
+`_calculateFontSize`, avant `findLargestThatFits`, dans un snapshot local dont
+la liste est non modifiable. `wrapWords: true` court-circuite la factory et
+n'effectue aucun aplatissement. Aucun cache, champ d'état ou objet partagé
+entre builds n'a été ajouté.
 
-Un finding bloquant de disponibilité/complexité reste toutefois ouvert. Le
-texte visuel et ses ranges sont recalculés pour chaque candidat de la
-dichotomie, alors que l'oracle adversarial corrigé exige leur calcul unique par
-configuration. Le probe indépendant compte 30 aplatissements/scans sur une
-grille d'environ un milliard de candidats, sous Flutter 3.41.0 comme 3.47.2,
-au lieu d'un seul. La suite permanente ne mesure pas cette propriété. Le lot
-ne peut donc pas être accepté sur `719d6a8`.
+Le comportement fonctionnel principal reste intact : parent synthétique,
+formule par run `U(S × C / F)`, branche `F == 0`, clone exhaustif des
+`TextSpan` standards, identité des sous-types, arbre source pré-override,
+offsets UTF-16, somme de toutes les boxes bidi, NBSP/NNBSP, replacement,
+`textKey`, groupes legacy et frontière bornée `WidgetSpan`. Aucun finding
+actionnable ne reste ouvert dans le diff corrigé.
 
-## Finding bloquant
+## Finding initial résolu
 
-### P1 — La segmentation indépendante du candidat est répétée à chaque évaluation
-
-**Sévérité : moyenne pour la disponibilité ; bloquante pour le gate du lot.**
+### P1 clos — segmentation unique hors de la recherche de candidats
 
 **Fichiers :**
 
-- `lib/src/auto_size_text.dart:473-492` ;
-- `lib/src/auto_size_text.dart:505-526` ;
-- `test/wrap_words_test.dart:289-301`.
+- `lib/src/auto_size_text.dart:468-504` ;
+- `lib/src/auto_size_text.dart:516-541` ;
+- `lib/src/auto_size_text_layout.dart:87-98` ;
+- `test/wrap_words_test.dart:6-29` et `325-385`.
 
-**Problème.** `_calculateFontSize` appelle `_checkTextFits` depuis le prédicat
-de `findLargestThatFits`. Lorsque `wrapWords` vaut faux, `_checkTextFits`
-exécute alors `text.toPlainText(includeSemanticsLabels: false)` et recrée
-l'itération `_unbreakableTextRanges(plainText)` à chaque candidat. Ni le texte
-visuel ni les frontières ne dépendent pourtant de `C` : seuls le scaler et les
-boxes du painter dépendent du candidat.
+`_calculateFontSize` construit un `final unbreakableTextSnapshot` avant la
+closure de recherche. Le ternaire est paresseux : avec `wrapWords: true`, sa
+valeur est `null` et `_UnbreakableTextSnapshot.from` n'est pas appelée. Avec
+`false`, la factory appelle exactement une fois
+`toPlainText(includeSemanticsLabels: false)`, scanne la chaîne, puis copie les
+seuls couples `[start, end)` dans une `List<TextRange>.unmodifiable`.
 
-La recherche garde bien `O(log C)` évaluations et le scan individuel reste
-linéaire, mais le coût de préparation devient `O(N log C)` et alloue un nouveau
-`StringBuffer`/`String` par candidat, au lieu de la borne exigée
-`O(N) + O(K log C)` hors coût moteur des boxes. Pour un arbre long ou coûteux à
-aplatir, cette répétition se trouve sur le chemin de layout UI et peut produire
-du jank ou amplifier un déni de service local par contenu applicatif.
+Le snapshot reste une variable locale du calcul en cours et est seulement
+passé en lecture à `_checkTextFits`. Chaque candidat conserve son propre
+painter, son propre layout et ses propres requêtes de boxes ; seules la chaîne
+et la segmentation indépendantes de `C` sont sorties de la boucle. Il n'existe
+ni champ, ni singleton, ni memoization par span ou candidat. Un nouveau build,
+un changement d'override ou un nouveau span reconstruit donc exactement un
+snapshot neuf.
 
-**Preuve indépendante.** Un sous-type temporaire de `TextSpan` a compté les
-appels à `computeToPlainText` pour un texte non vide, `wrapWords: false`, une
-boîte `0 × 0`, `minFontSize: 0.1`, référence `100000000` et pas `0.1`. La grille
-virtuelle contient environ un milliard de candidats et sa dichotomie effectue
-30 évaluations. Le test exigeait un seul calcul du texte visuel :
+L'entrée du snapshot ne dérive pas du paragraphe mesuré. Pour le texte riche,
+elle est le span de mesure fidèle après éventuel override ; pour le texte
+simple, elle est un unique `TextSpan(text: widget.data)`. Le parent synthétique
+de la boucle n'ajoute aucun texte aux cas riches et porte exactement
+`widget.data` aux cas simples. Overrides, candidat et scaler ne changent pas
+les code units. Les ranges restent ainsi identiques à ceux de l'ancien painter
+pour chaque candidat, sans flattening de l'arbre utilisé pour les boxes.
+
+### Régression permanente et preuve rouge/verte
+
+Le test permanent utilise un sous-type privé de `TextSpan` qui surcharge
+`computeToPlainText` et incrémente un compteur extérieur. Sa grille
+`0.1..100000000` impose 30 évaluations logarithmiques ; une boîte `0 × 0` et
+un `overflowReplacement` empêchent un `RenderParagraph` final de polluer le
+compteur. Les quatre pumps vérifient successivement :
+
+1. `wrapWords: true` : 0 appel ;
+2. première configuration `false` : total 1 ;
+3. nouvel override de letter spacing : total 2 ;
+4. nouveau span source : total 3.
+
+Pour prouver que ce test détecte réellement le défaut, le fichier final
+`test/wrap_words_test.dart` a été superposé à une archive propre de
+`719d6a8`, sans le correctif produit, puis le test seul a été exécuté :
 
 ```text
-Flutter 3.47.2 : expected 1, actual 30
-Flutter 3.41.0 : expected 1, actual 30
+Flutter 3.41.0 : Expected <1>, Actual <30>
+Flutter 3.47.2 : Expected <1>, Actual <30>
 ```
 
-Le compteur est porté par le span source et n'observe ni un helper de test, ni
-le `RenderParagraph` final : avec le replacement actif, ses 30 appels viennent
-directement des 30 passages dans `_checkTextFits`. Le probe temporaire a été
-supprimé après reproduction.
-
-**Lacune de régression.** Le corpus alterné de 256 code units vérifie seulement
-le candidat final et l'égalité du texte rendu. Il ne compte ni aplatissements,
-ni ranges, ni painters auxiliaires, ni requêtes de boxes. Il reste donc vert si
-le scan est répété 30 fois, comme le démontre la tête candidate.
-
-**Correction exigée.** Calculer
-`toPlainText(includeSemanticsLabels: false)` et matérialiser les seuls ranges
-`[start, end)` une fois dans la préparation de configuration/mesure, avant
-`findLargestThatFits`, puis transmettre ces ranges immuables à chaque appel de
-fit. Le painter fidèle et les requêtes de boxes restent naturellement propres
-au candidat. Ajouter la régression compteur correspondante sur une grille à
-nombre d'évaluations logarithmique ; elle doit exiger un seul aplatissement et
-un seul scan de ranges par layout, sans seuil mural.
+Le même test est vert sur `482b56e` dans les deux suites ciblées. Cette preuve
+tue directement le mutant initial et ne repose ni sur un seuil mural, ni sur
+un helper privé, ni sur le corpus alterné fonctionnel.
 
 ## Audit fonctionnel du diff
 
@@ -152,7 +158,7 @@ seulement reconstruit dans la closure. La branche simple zéro est corrigée pou
 mesurer avec le scaler utilisateur au lieu de prétendre qu'un candidat nul ou
 positif est sans scaling. Le transport de la taille effective et le rendu
 `noScaling` des groupes legacy restent inchangés ; les suites historiques de
-groupe passent dans les 95 tests sur les deux SDK.
+groupe passent dans les 96 tests sur les deux SDK.
 
 ### `wrapWords: false`, UTF-16 et bidi
 
@@ -170,9 +176,9 @@ retour anticipé. La largeur est la somme de
 sélection bidi disjointe et ne facture pas l'espace physique entre les boxes.
 Il n'existe ni painter par plage, ni substring, ni reconstruction monostyle.
 
-Le défaut porte donc sur la fréquence du scan préparatoire, pas sur la
-classification, les unités, le nombre de painters par candidat ou le calcul de
-largeur.
+Le scan préparatoire est désormais unique par build. La classification, les
+unités, le nombre de painters par candidat et le calcul de largeur n'ont pas
+changé ; les tests fonctionnels antérieurs et la suite lifecycle restent verts.
 
 ### Frontière `WidgetSpan`
 
@@ -224,35 +230,38 @@ Flutter 3.47.2 • framework d3b14c8769 • Dart 3.13.2
 
 | Gate | Flutter 3.41.0 | Flutter 3.47.2 |
 |---|---:|---:|
-| `rich_text_test` + `wrap_words_test` | 20/20 | 20/20 |
-| suite racine complète | 95/95 | 95/95 |
+| `rich_text_test` + `wrap_words_test` | 21/21 | 21/21 |
+| suite racine complète | 96/96 | 96/96 |
 | `leak_tracking` + `text_painter_lifecycle` | 9/9 | 9/9 |
 | analyse scoped fatale `lib test example/main.dart` | 0 diagnostic | 0 diagnostic |
 | exemple : résolution conforme à la politique de lock puis analyse fatale | succès, 10 dépendances naturelles, aucun diagnostic | lock haut forcé, aucun diagnostic |
-| downgrade racine puis suite `--no-pub` | 9 dépendances abaissées, 95/95 | 13 dépendances abaissées, 95/95 |
-| probe segmentation unique | rouge, attendu 1 / réel 30 | rouge, attendu 1 / réel 30 |
+| downgrade racine puis suite `--no-pub` | 9 dépendances abaissées, 96/96 | lock déjà au minimum, aucun changement, 96/96 |
+| test permanent segmentation sur `482b56e` | vert : 0 puis exactement 1 par configuration | vert : 0 puis exactement 1 par configuration |
+| même test superposé à `719d6a8` | rouge : attendu 1 / réel 30 | rouge : attendu 1 / réel 30 |
 
 Le format autoritatif Dart 3.13.2 contrôle 25 fichiers de `lib`, `test` et
-`example` sans changement. Le contrôle non mutating Dart 3.11.0 signale
-uniquement les deux divergences historiques déjà documentées des lots
-antérieurs, `test/leak_tracking_test.dart` et
-`test/text_painter_lifecycle_test.dart`; aucun des quatre fichiers Dart du lot
-4 n'est concerné.
+`example` sans changement. Dart 3.11.0 contrôle séparément les quatre fichiers
+Dart du lot sans changement.
 
-`git diff --check 3a1c343...719d6a8` passe. Les résolutions et probes ont été
-isolés ou ignorés conformément à la politique du dépôt ; aucun fichier de
-probe ne reste dans le worktree.
+`git diff --check 632edad...482b56e` passe. L'archive de preuve rouge et
+l'extraction SDK minimum sont isolées sous `/private/tmp` ; aucun fichier de
+probe ne reste dans le worktree. Avant mise à jour de ce rapport, l'arbre Git
+était propre. Les quatre fichiers du cherry-pick sont byte-for-byte identiques
+à ceux du correctif source `413ea87`.
 
 ## Surface lue intégralement
 
-Les cinq fichiers du diff ont été lus intégralement, ainsi que les versions
-parentes des deux fichiers modifiés :
+Les quatre fichiers du correctif ont été relus intégralement :
 
 1. `lib/src/auto_size_text.dart` ;
 2. `lib/src/auto_size_text_layout.dart` ;
 3. `maintenance/implementation/lot-4-rich-text.md` ;
-4. `test/rich_text_test.dart` ;
-5. `test/wrap_words_test.dart`.
+4. `test/wrap_words_test.dart`.
+
+La contre-revue a aussi relu le rapport initial en entier. La revue précédente
+avait déjà lu intégralement le cinquième fichier original,
+`test/rich_text_test.dart`, ainsi que les versions parentes des fichiers
+produit.
 
 Ont aussi été lus avant conclusion : les instructions Developing Flutter,
 Effective Dart, Testing et `find-bugs` ; le lot 4 et les gates de la roadmap ;
@@ -278,8 +287,8 @@ appel réseau.
 | Authentification, autorisation/IDOR, CSRF et session | Hors surface ; aucune identité ou ressource distante. |
 | Race / TOCTOU / état | Aucun nouvel état partagé ; rebuilds, source immuable et groupes legacy exercés. |
 | Cryptographie, secrets et divulgation | Hors surface ; aucune donnée sensible ou log runtime ajouté. |
-| Ressources / disponibilité | Painters correctement disposés et recherche logarithmique, mais scan `O(N)` répété `log C` fois : finding P1 ouvert. |
-| Logique numérique | Composition non linéaire, zéro, plateau, validations et exactitude candidat/rendu conformes hors finding. |
+| Ressources / disponibilité | Painters disposés, recherche logarithmique et scan `O(N)` unique par build ; test compteur discriminant vert. |
+| Logique numérique | Composition non linéaire, zéro, plateau, validations et exactitude candidat/rendu conformes. |
 | Unicode / logique métier | Offsets UTF-16, NBSP/NNBSP, bidi multi-box et labels sémantiques conformes ; split-surrogate invalide par run correctement exclu. |
 | Compatibilité API | Aucun nouveau symbole public ; `Text`, `textKey`, ancienne API de scaler et groupes legacy conservés. |
 
