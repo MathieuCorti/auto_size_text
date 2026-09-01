@@ -6,9 +6,13 @@ Branche revue : `codex/review-painter-dispose`
 
 Parent exact : `e9f75af9c3ef54bee2cbd3fcc0a53b44e7811968`
 
-Tête candidate revue : `ec609c4651116c56232f3a7f4854e7bfb52d108a`
+Tête candidate initiale : `ec609c4651116c56232f3a7f4854e7bfb52d108a`
 
-Plage revue : `e9f75af...ec609c4`
+Tête candidate corrigée : `21d3664665958914b97e8833033e4ad704a76c9c`
+
+Plage cumulative revue : `e9f75af...21d3664`
+
+Delta correctif re-revu : `e358162..21d3664`
 
 Le tree de `ec609c4` est identique à celui du candidat original
 `bec29e46d24ec24f936c084b1e96681749f3ea7b` : les deux résolvent vers
@@ -16,9 +20,9 @@ Le tree de `ec609c4` est identique à celui du candidat original
 
 ## Verdict
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
-Les deux corrections produit sont correctes : chaque painter de
+Les deux corrections produit restent correctes : chaque painter de
 `_checkTextFits` a un propriétaire local et un `finally`, toutes les lectures
 ont lieu avant `dispose`, les retours anticipés et exceptions sont couverts,
 et je n'ai trouvé ni double-dispose, ni use-after-dispose, ni changement de
@@ -30,17 +34,19 @@ le parent, chacune échoue isolément avec une ou plusieurs ressources
 elles passent sans fuite. Elles sont groupées et leurs sept noms commencent par
 « should ».
 
-Le lot ne satisfait toutefois pas son contrat de nettoyage des helpers de test.
-`doesTextFit` conserve un troisième `TextPainter` temporaire sans propriétaire
-ni `finally`. Le helper est actuellement inutilisé, ce qui masque la fuite dans
-la suite normale, mais un micro-test opt-in qui l'appelle reproduit
-immédiatement une fuite instrumentée. Ce finding est bloquant pour
-l'acceptation explicite « tout `TextPainter` temporaire » et « aucune fuite du
-harness ».
+La revue initiale demandait un changement parce que `doesTextFit` conservait un
+troisième `TextPainter` temporaire sans propriétaire ni `finally`. Le correctif
+`21d3664` entoure maintenant son layout, ses lectures et son retour par un
+`try/finally`, et ajoute une régression permanente qui appelle réellement le
+helper. Cette régression est rouge pour la cause attendue sur `e358162`, verte
+sur la tête et la suite complète passe sur minimum et haute. Le finding initial
+est résolu et aucun finding actionnable ne reste.
 
-## Finding
+## Finding initial résolu
 
 ### P2 — Le helper `doesTextFit` ne libère pas son `TextPainter`
+
+**Statut final : résolu par `21d3664`.**
 
 **Fichier :** `test/utils.dart:23-39`
 
@@ -52,19 +58,22 @@ helper parce qu'aucun des sept nouveaux tests ne l'appelle. Ce n'est pas le
 critère fixé par la feuille de route : le lot doit corriger tout painter des
 helpers et tout painter temporaire doit être libéré dans un `finally`.
 
-**Preuve :** `rg 'doesTextFit\(' test` ne trouve que sa déclaration, ce qui
-explique pourquoi les suites courantes restent vertes. J'ai ajouté uniquement
-dans une extraction temporaire un test qui appelle le helper avec
+**Preuve initiale :** sur `ec609c4`, `rg 'doesTextFit\(' test` ne trouvait que
+sa déclaration, ce qui expliquait pourquoi les suites courantes restaient
+vertes. J'ai ajouté uniquement dans une extraction temporaire un test qui
+appelle le helper avec
 `experimentalLeakTesting: nativeResourceLeakTesting`. Sur Flutter 3.47.2, le
 corps fonctionnel passe, puis `tearDownAll` échoue avec exactement une ressource
 `TextPainter notDisposed`; la stack de création pointe sur
 `doesTextFit (test/utils.dart:23)`. Le signal vient des événements
 `FlutterMemoryAllocations`, pas d'une simple attente de collecte GC.
 
-**Correction attendue :** soit supprimer ce helper mort, soit entourer son
-layout, ses lectures et son retour par `try/finally` avec `dispose`, puis ajouter
-une régression opt-in qui appelle réellement le helper. La seconde option doit
-calculer le booléen avant le `dispose` et ne pas modifier les métriques testées.
+**Correction vérifiée :** le helper conserve sa signature, ses arguments de
+painter, son layout et ses comparaisons. Un `try` couvre toutes les opérations
+susceptibles de retourner ou lever après l'allocation ; son `finally` appelle
+exactement un `dispose`. Le booléen est évalué avant le disposal. Le nouveau
+test opt-in appelle `doesTextFit` avec des contraintes qui font réellement
+tenir le texte et vérifie aussi le résultat fonctionnel `true`.
 
 Aucun autre finding actionnable n'a été identifié.
 
@@ -78,7 +87,7 @@ Dart du dépôt trouve quatre allocations :
 | `lib/src/auto_size_text.dart:401`, painter de mots | `_checkTextFits`; `try` couvre `layout`, les deux lectures et le retour anticipé ; `finally` à la ligne 418 et `dispose` à la ligne 419 | Correct |
 | `lib/src/auto_size_text.dart:423`, painter principal | `_checkTextFits`; `try` couvre `layout`, les trois lectures et le retour ; `finally` à la ligne 439 et `dispose` à la ligne 440 | Correct |
 | `test/leak_tracking_test.dart:9`, probe du harness | Test local ; `dispose` explicite à la ligne 13 après `layout` | Correct pour ce probe sans retour ni exception |
-| `test/utils.dart:23`, helper `doesTextFit` | Aucun `dispose`, aucun `finally` | Finding P2 |
+| `test/utils.dart:23`, helper `doesTextFit` | `try` autour de `layout`, des trois lectures et du retour ; `finally` et `dispose` aux lignes 39-40 | Correct par `21d3664` |
 
 Dans les deux sites produit, le constructeur précède le `try`, mais les
 constructeurs Flutter 3.41.0 et 3.47.2 ne créent pas encore de paragraphe : la
@@ -124,9 +133,11 @@ Les sept tests sont dans un `group('AutoSizeText TextPainter lifecycle', ...)`.
 Chaque nom commence par « should » et chaque assertion fonctionnelle vérifie
 que le chemin visé a réellement été atteint. Aucun des sept n'appelle
 `doesTextFit` ou ne crée directement un `TextPainter`; leur vert n'est donc pas
-pollué par le finding du helper.
+pollué par le finding du helper. Le huitième test permanent appelle au contraire
+explicitement `doesTextFit`, vérifie que le texte tient, puis laisse le réglage
+de fuite contrôler le disposal du painter du harness.
 
-## Matrice indépendante
+## Matrice indépendante initiale
 
 Toolchains observées :
 
@@ -157,18 +168,62 @@ Les résolutions minimum et le micro-test ont été exécutés dans des réperto
 temporaires. Le lock canonique n'a pas été remplacé et l'arbre de revue était
 propre avant la création du présent rapport.
 
+## Re-review du correctif `21d3664`
+
+Le delta `e358162..21d3664` modifie exactement trois fichiers : `test/utils.dart`,
+`test/text_painter_lifecycle_test.dart` et le journal du lot. Il n'existe aucun
+delta sous `lib/**`; les deux `finally` produit déjà acceptés sont inchangés.
+
+Dans `test/utils.dart`, le diff hors espaces ajoute seulement le
+`try/finally` et `dispose`. Il ne change ni le `TextSpan`, ni les paramètres du
+painter, ni la largeur de layout, ni les trois comparaisons. Toutes les valeurs
+sont lues avant disposal et l'instance ne sort pas du helper. Il n'existe donc
+ni double-dispose, ni use-after-dispose, ni changement fonctionnel du helper.
+
+Le nouveau test est permanent, dans le groupe existant et son nom commence par
+« should ». Pour prouver son rouge indépendamment, le fichier de test corrigé a
+été copié dans une extraction de `e358162`, sans le correctif de `test/utils`.
+Sur Flutter 3.47.2, son assertion `isTrue` passe, puis `tearDownAll` échoue avec
+exactement une ressource `TextPainter notDisposed`; la stack pointe sur
+`doesTextFit (test/utils.dart:23)`. Sur `21d3664`, le même test est inclus dans
+les 8/8 verts et ne laisse aucune fuite.
+
+| Contrôle final indépendant | Résultat |
+|---|---|
+| 3.47.2, nouveau test seul sur `e358162` | Code 1 attendu ; 1 `TextPainter notDisposed`, stack `test/utils.dart:23` |
+| 3.47.2, lifecycle ciblé sur `21d3664` | Code 0 ; 8/8, `tearDownAll` vert |
+| 3.47.2, suite complète | Code 0 ; 33/33 |
+| 3.47.2, analyse scoped `lib test example/main.dart` | Code 1 attendu ; exactement 9 infos historiques, 0 warning, 0 erreur |
+| 3.47.2, exemple verrouillé puis analyse fatale | Codes 0 ; lock inchangé et aucun diagnostic |
+| 3.47.2, format `lib test example` | Code 0 ; 21 fichiers, 0 changement |
+| 3.41.0, extraction propre sans lock exemple | Résolution racine réussie ; 26 dépendances |
+| 3.41.0, lifecycle ciblé | Code 0 ; 8/8, `tearDownAll` vert |
+| 3.41.0, suite complète | Code 0 ; 33/33 |
+| 3.41.0, analyse scoped | Code 1 attendu ; les mêmes 9 infos, 0 warning, 0 erreur |
+| 3.41.0, exemple sans lock puis analyse fatale | Codes 0 ; 10 dépendances et aucun diagnostic |
+| Diff-check delta et cumul | Codes 0 pour `e358162..21d3664` et `e9f75af...21d3664` |
+
+La recherche cumulative trouve toujours exactement quatre constructions
+`TextPainter` dans le dépôt. Les trois painters temporaires de production et du
+helper sont maintenant protégés par leurs propriétaires ; le quatrième est le
+probe du harness, explicitement disposé. Aucun résultat de sizing, rendu ou API
+publique n'a changé. Aucun nouveau finding n'a été identifié lors de la
+re-review.
+
 ## Fichiers lus intégralement
 
-Les trois fichiers modifiés ont été lus intégralement, ainsi que leur diff et
+Les quatre fichiers produit/test/journal modifiés cumulativement ont été lus
+intégralement, ainsi que leur diff et
 la version parent du fichier produit :
 
 1. `lib/src/auto_size_text.dart` ;
 2. `test/text_painter_lifecycle_test.dart` ;
-3. `maintenance/implementation/lot-1-painter-dispose.md`.
+3. `test/utils.dart` ;
+4. `maintenance/implementation/lot-1-painter-dispose.md`.
 
 Pour vérifier le harness et les propriétaires, ont aussi été lus intégralement
 `test/flutter_test_config.dart`, `test/leak_tracking.dart`,
-`test/leak_tracking_test.dart`, `test/utils.dart`, `test/text_fits_test.dart` et
+`test/leak_tracking_test.dart`, `test/text_fits_test.dart` et
 `test/wrap_words_test.dart`, ainsi que les portions constructeur/disposal de
 `TextPainter` dans les sources Flutter 3.41.0 et 3.47.2.
 
@@ -189,13 +244,13 @@ des tests ; le code produit ajoute uniquement la libération de ressources.
 | Authentification, autorisation/IDOR, CSRF et session | Hors surface ; aucune identité, requête ou mutation distante |
 | Race / TOCTOU | Aucun nouvel état partagé ; les callbacks de groupe existants ne sont pas modifiés |
 | Cryptographie, secrets et divulgation | Hors surface ; seulement des stacks locales de test en cas d'échec |
-| Déni de service / ressources | Les deux fuites produit sont corrigées ; le painter du helper reste non libéré, finding P2 |
+| Déni de service / ressources | Les deux fuites produit et le painter du helper sont corrigés ; quatre propriétaires vérifiés |
 | Logique métier / numérique | Aucun calcul produit modifié ; résultats historiques verts sur minimum et haute |
 
 ## Limites
 
-Cette revue ne modifie ni le code produit ni le harness et ne valide donc pas
-une correction du finding P2. Elle ne couvre pas les futurs painters
-persistants des lots render 9 et 10, ni la démo, la CI, le packaging, la
-documentation publique ou une publication. Aucun merge, push, tag ou autre
+Cette revue ne modifie ni le code produit ni le harness ; elle enregistre la
+validation indépendante du correctif déjà fourni. Elle ne couvre pas les futurs
+painters persistants des lots render 9 et 10, ni la démo, la CI, le packaging,
+la documentation publique ou une publication. Aucun merge, push, tag ou autre
 mutation distante n'a été effectué.
