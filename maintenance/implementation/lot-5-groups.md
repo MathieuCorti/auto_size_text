@@ -6,7 +6,7 @@ Branche : `codex/impl-groups`
 
 Parent exact : `c9a1adc006365feb3e1750069ca1e115c3f20237`
 
-Tête produit et tests : `06f0326` ; le commit suivant contient uniquement ce
+Tête produit et tests : `713be70` ; le commit suivant contient uniquement ce
 journal.
 
 ## Périmètre livré
@@ -61,13 +61,23 @@ qu'une autre sortie invalide est rencontrée seulement pendant la projection,
 la projection lève `ArgumentError` ; aucune valeur invalide n'entre dans la map
 ou dans `G`, et le `P` fini déjà écrit reste publié. Il n'existe pas de rollback
 transactionnel spéculatif. La régression permanente récupère ensuite sans
-réinscription : le rapport fini conservé permet la projection attendue à 20.
+réinscription. Elle retire ensuite le voisin qui imposait `G=25` et utilise un
+troisième membre de domaine `{70,50}` : le rapport `P=50` conservé impose
+encore son rendu à 50. Un rollback vers `+∞` rendrait ce témoin à 70.
 
 ## Convergence et cycle de vie
 
 Le contrôleur recalcule le minimum après chaque écriture ou suppression de
 rapport. Le retrait est effectif avant la notification : un membre transféré
 ou disposé ne contribue plus et n'est pas rappelé par l'ancien groupe.
+
+Le transfert dans `didUpdateWidget` compare les contrôleurs avec `identical`.
+`AutoSizeGroup` étant sous-classable, deux instances distinctes peuvent
+légalement redéfinir `==` et comparer égales sans représenter la même
+appartenance. Le retrait, l'inscription et la remise à zéro du cache sont donc
+fondés sur l'identité. L'audit de toutes les occurrences n'a trouvé aucune
+autre comparaison contrôleur-à-contrôleur : les autres gardes portent sur
+`null` ou sur la présence d'un état dans la map interne.
 
 Le marqueur `_notificationPending` est posé avant `scheduleMicrotask`. Tous les
 changements synchrones de `G` d'une époque partagent donc une seule tâche. Au
@@ -134,6 +144,26 @@ sur le fit local, retrait/dispose sans callback tardif, transfert et détachemen
 groupe homogène, identité stable de `AutoSizeGroupBuilder`. Les probes S5 les
 donnaient déjà verts ; les tests de tête les maintiennent verts.
 
+## Correctifs après revue indépendante
+
+La revue générale `fb306d0` a trouvé deux faiblesses, corrigées sans modifier
+le contrat mathématique.
+
+La première était test-only : l'ancien cas d'erreur laissait B publier 25. A
+rendait donc 20 après récupération que son rapport fini 50 ait été retenu ou
+illégalement remplacé par `+∞`. Le test final ajoute C, qui publie 70 avec le
+domaine `{70,50}`, puis retire B. Sur le produit intact, C rend 50. Avec le
+mutant temporaire `_remove(this); _register(this);` dans le chemin d'exception,
+les deux SDK échouent avec `Expected: 50, Actual: 70.0`. Le mutant a été retiré.
+
+La seconde était produit : `oldWidget.group != widget.group` consultait
+l'égalité surchargée de deux contrôleurs. Le test utilise deux sous-classes
+distinctes mais égales, transfère A de g1 à g2, puis change son rapport de 20 à
+30. Sur `b7bd149`, les deux SDK rendaient `A/B/C=20/20/40` au lieu de
+`20/40/20`; une publication suivante pouvait en plus atteindre l'assertion
+d'inscription. `!identical(oldWidget.group, widget.group)` donne après le
+transfert `20/40/20`, puis `30/40/20` sans exception ni frame résiduelle.
+
 ## Régressions permanentes
 
 `test/group_constraints_test.dart` couvre les grilles régulières et
@@ -144,14 +174,15 @@ sortie invalide atteinte seulement pendant la projection, coalescence de zone
 et domaine virtuel d'environ mille milliards de candidats. Ce dernier reste
 sous 200 appels publics au scaler, sans seuil mural.
 
-`test/group_test.dart` couvre le transfert `didUpdateWidget`, le passage à
-`group: null`, le changement de domaine et de scaler sans duplication de
-membre, la remontée après retrait du minimum, le dispose avant notification et
-la frame témoin stable. `test/group_builder_test.dart` verrouille l'identité du
-groupe. `test/preset_font_sizes_test.dart` verrouille les domaines disjoints et
-l'immuabilité des listes. `test/text_scaler_test.dart` conserve le groupe
-homogène historique et attend désormais que les membres hétérogènes restent
-chacun dans leur domaine.
+`test/group_test.dart` couvre le transfert `didUpdateWidget`, notamment entre
+contrôleurs égaux mais non identiques, la variation de rapport après transfert,
+le passage à `group: null`, le changement de domaine et de scaler sans
+duplication de membre, la remontée après retrait du minimum, le dispose avant
+notification et la frame témoin stable. `test/group_builder_test.dart`
+verrouille l'identité du groupe. `test/preset_font_sizes_test.dart` verrouille
+les domaines disjoints et l'immuabilité des listes. `test/text_scaler_test.dart`
+conserve le groupe homogène historique et attend désormais que les membres
+hétérogènes restent chacun dans leur domaine.
 
 ## Matrice verte finale
 
@@ -171,8 +202,8 @@ Flutter 3.47.2 • revision d3b14c8769 • engine 1cf1c4773fb941c4c74a7f8bb144a8
 | `dart format --output=none --set-exit-if-changed lib test example` | 26 fichiers, 0 changement |
 | `flutter analyze --no-pub --fatal-infos --fatal-warnings lib test` | aucun diagnostic |
 | exemple : même analyse fatale | aucun diagnostic |
-| ciblés groupes/presets/scalers/rich/replacement/lifecycle/leak | 60/60 |
-| `flutter test --no-pub --reporter compact` | 114/114 |
+| ciblés groupes/presets/scalers/rich/replacement/lifecycle/leak | 61/61 |
+| `flutter test --no-pub --reporter compact` | 115/115 |
 | probe privé schedule/run/callback | `1/1/1` par membre et par époque stable |
 
 La commande ciblée exacte portait sur :
@@ -198,10 +229,10 @@ du worktree n'a changé.
 | exemple sans lock : `flutter pub get` | succès, 10 dépendances |
 | analyse fatale `lib test` | aucun diagnostic |
 | exemple : analyse fatale | aucun diagnostic |
-| mêmes ciblés | 60/60 |
-| suite complète avant downgrade | 114/114 |
+| mêmes ciblés | 61/61 |
+| suite complète avant downgrade | 115/115 |
 | `flutter pub downgrade --no-example` | succès, 9 dépendances abaissées |
-| suite complète après downgrade `--no-pub` | 114/114 |
+| suite complète après downgrade `--no-pub` | 115/115 |
 | probe privé schedule/run/callback | `1/1/1` par membre et par époque stable |
 
 Les deux extractions de rouge, l'extraction minimale et celle du probe ont été
@@ -213,7 +244,10 @@ tests et n'a signalé ni painter orphelin ni callback après dispose.
 - `1ef0f8f` — `test: specify heterogeneous group projection` ;
 - `c2b7825` — `fix: project heterogeneous group constraints` ;
 - `06f0326` — `test: strengthen zero plateau group oracle` ;
-- commit suivant — journal d'implémentation uniquement.
+- `b7bd149` — `docs: record lot 5 implementation evidence` ;
+- `8505ee6` — `test: cover group report retention and identity` ;
+- `713be70` — `fix: compare group controllers by identity` ;
+- commit suivant — mise à jour du journal après revue.
 
 ## Limites et risques transmis
 
