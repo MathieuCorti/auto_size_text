@@ -1,19 +1,19 @@
-part of auto_size_text;
+part of '../auto_size_text.dart';
 
 /// Flutter widget that automatically resizes text to fit perfectly within its
 /// bounds.
 ///
 /// All size constraints as well as maxLines are taken into account. If the text
-/// overflows anyway, you should check if the parent widget actually constraints
+/// overflows anyway, check whether the parent widget actually constrains
 /// the size of this widget.
 class AutoSizeText extends StatefulWidget {
-  /// Creates a [AutoSizeText] widget.
+  /// Creates an [AutoSizeText] widget.
   ///
   /// If the [style] argument is null, the text will use the style from the
   /// closest enclosing [DefaultTextStyle].
   const AutoSizeText(
     String this.data, {
-    Key? key,
+    super.key,
     this.textKey,
     this.style,
     this.strutStyle,
@@ -29,16 +29,21 @@ class AutoSizeText extends StatefulWidget {
     this.wrapWords = true,
     this.overflow,
     this.overflowReplacement,
-    this.textScaleFactor,
+    @Deprecated('Use textScaler instead.') this.textScaleFactor,
+    this.textScaler,
     this.maxLines,
     this.semanticsLabel,
-  })  : textSpan = null,
-        super(key: key);
+  }) : assert(
+         textScaler == null || textScaleFactor == null,
+         'textScaleFactor is deprecated and cannot be specified when '
+         'textScaler is specified.',
+       ),
+       textSpan = null;
 
-  /// Creates a [AutoSizeText] widget with a [TextSpan].
+  /// Creates an [AutoSizeText] widget with a [TextSpan].
   const AutoSizeText.rich(
     TextSpan this.textSpan, {
-    Key? key,
+    super.key,
     this.textKey,
     this.style,
     this.strutStyle,
@@ -54,15 +59,21 @@ class AutoSizeText extends StatefulWidget {
     this.wrapWords = true,
     this.overflow,
     this.overflowReplacement,
-    this.textScaleFactor,
+    @Deprecated('Use textScaler instead.') this.textScaleFactor,
+    this.textScaler,
     this.maxLines,
     this.semanticsLabel,
-  })  : data = null,
-        super(key: key);
+  }) : assert(
+         textScaler == null || textScaleFactor == null,
+         'textScaleFactor is deprecated and cannot be specified when '
+         'textScaler is specified.',
+       ),
+       data = null;
 
-  /// Sets the key for the resulting [Text] widget.
+  /// Sets the key that resolves to the rendered paragraph.
   ///
-  /// This allows you to find the actual `Text` widget built by `AutoSizeText`.
+  /// The keyed widget is an implementation detail and is not guaranteed to be
+  /// a [Text]. Its render object is the paragraph used for painting and input.
   final Key? textKey;
 
   /// The text to display.
@@ -125,9 +136,9 @@ class AutoSizeText extends StatefulWidget {
 
   /// Synchronizes the size of multiple [AutoSizeText]s.
   ///
-  /// If you want multiple [AutoSizeText]s to have the same text size, give all
-  /// of them the same [AutoSizeGroup] instance. All of them will have the
-  /// size of the smallest [AutoSizeText]
+  /// Give each member the same [AutoSizeGroup] instance. Members synchronize
+  /// to the smallest effective size their individual candidate domains can
+  /// represent. A member can stop at its own minimum or smallest preset.
   final AutoSizeGroup? group;
 
   /// How the text should be aligned horizontally.
@@ -163,8 +174,9 @@ class AutoSizeText extends StatefulWidget {
 
   /// Whether words which don't fit in one line should be wrapped.
   ///
-  /// If false, the fontSize is lowered as far as possible until all words fit
-  /// into a single line.
+  /// If false, the font size is lowered until every whitespace-delimited
+  /// segment fits without an internal line break. Non-breaking spaces remain
+  /// part of their surrounding segment.
   final bool wrapWords;
 
   /// How visual overflow should be handled.
@@ -183,10 +195,18 @@ class AutoSizeText extends StatefulWidget {
   ///
   /// This property also affects [minFontSize], [maxFontSize] and [presetFontSizes].
   ///
-  /// The value given to the constructor as textScaleFactor. If null, will
-  /// use the [MediaQueryData.textScaleFactor] obtained from the ambient
-  /// [MediaQuery], or 1.0 if there is no [MediaQuery] in scope.
+  /// The legacy linear scale supplied to the constructor.
+  ///
+  /// When null, [textScaler] or the ambient [MediaQuery] scaler is used.
+  @Deprecated('Use textScaler instead.')
   final double? textScaleFactor;
+
+  /// The strategy used to scale the text for accessibility.
+  ///
+  /// When null, [textScaleFactor] is converted to a linear scaler if supplied;
+  /// otherwise the ambient [MediaQuery] scaler is used. Custom scalers must be
+  /// monotone non-decreasing for the font-size search to remain defined.
+  final TextScaler? textScaler;
 
   /// An optional maximum number of lines for the text to span, wrapping if necessary.
   /// If the text exceeds the given number of lines, it will be resized according
@@ -216,10 +236,12 @@ class AutoSizeText extends StatefulWidget {
   final String? semanticsLabel;
 
   @override
-  _AutoSizeTextState createState() => _AutoSizeTextState();
+  State<AutoSizeText> createState() => _AutoSizeTextState();
 }
 
 class _AutoSizeTextState extends State<AutoSizeText> {
+  double? _publishedEffectiveFontSize;
+
   @override
   void initState() {
     super.initState();
@@ -231,217 +253,211 @@ class _AutoSizeTextState extends State<AutoSizeText> {
   void didUpdateWidget(AutoSizeText oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.group != widget.group) {
+    if (!identical(oldWidget.group, widget.group)) {
       oldWidget.group?._remove(this);
       widget.group?._register(this);
+      _publishedEffectiveFontSize = null;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, size) {
-      final defaultTextStyle = DefaultTextStyle.of(context);
+    final configuration = _createEffectiveTextConfiguration(context);
+    // ignore: deprecated_member_use_from_same_package
+    final legacyTextScaleFactor = widget.textScaleFactor;
+    _validateCandidateInputs(
+      referenceFontSize: configuration.referenceFontSize,
+      textScaleFactor: legacyTextScaleFactor,
+    );
+    final candidates = _createCandidateSet(configuration.referenceFontSize);
+    _validateProperties(configuration.maxLines);
 
-      var style = widget.style;
-      if (widget.style == null || widget.style!.inherit) {
-        style = defaultTextStyle.style.merge(widget.style);
-      }
-      if (style!.fontSize == null) {
-        style = style.copyWith(fontSize: AutoSizeText._defaultFontSize);
-      }
+    final sourceTextSpan = widget.textSpan;
 
-      final maxLines = widget.maxLines ?? defaultTextStyle.maxLines;
-
-      _validateProperties(style, maxLines);
-
-      final result = _calculateFontSize(size, style, maxLines);
-      final fontSize = result[0] as double;
-      final textFits = result[1] as bool;
-
-      Widget text;
-
-      if (widget.group != null) {
-        widget.group!._updateFontSize(this, fontSize);
-        text = _buildText(widget.group!._fontSize, style, maxLines);
-      } else {
-        text = _buildText(fontSize, style, maxLines);
-      }
-
-      if (widget.overflowReplacement != null && !textFits) {
-        return widget.overflowReplacement!;
-      } else {
-        return text;
-      }
-    });
+    return _AutoSizeTextRenderWidget(
+      snapshot: _AutoSizeTextLayoutSnapshot(
+        data: widget.data,
+        textSpan: sourceTextSpan,
+        textKey: widget.textKey,
+        renderStyle: configuration.renderStyle,
+        renderStrutStyle: widget.strutStyle,
+        renderTextAlign: widget.textAlign,
+        renderTextDirection: widget.textDirection,
+        renderLocale: widget.locale,
+        renderSoftWrap: widget.softWrap,
+        renderOverflow: widget.overflow,
+        renderMaxLines: widget.maxLines,
+        semanticsLabel: widget.semanticsLabel,
+        wrapWords: widget.wrapWords,
+        configuration: configuration,
+        candidates: candidates,
+        groupLimit: widget.group?._fontSize ?? double.infinity,
+      ),
+      overflowReplacement: widget.overflowReplacement,
+      onLayout: _publishLayoutResult,
+    );
   }
 
-  void _validateProperties(TextStyle style, int? maxLines) {
-    assert(widget.overflow == null || widget.overflowReplacement == null,
-        'Either overflow or overflowReplacement must be null.');
-    assert(maxLines == null || maxLines > 0,
-        'MaxLines must be greater than or equal to 1.');
-    assert(widget.key == null || widget.key != widget.textKey,
-        'Key and textKey must not be equal.');
+  void _publishLayoutResult(double effectiveFontSize) {
+    final group = widget.group;
+    if (group == null || _publishedEffectiveFontSize == effectiveFontSize) {
+      return;
+    }
+    group._updateFontSize(this, effectiveFontSize);
+    _publishedEffectiveFontSize = effectiveFontSize;
+  }
+
+  _EffectiveTextConfiguration _createEffectiveTextConfiguration(
+    BuildContext context,
+  ) {
+    final defaultTextStyle = DefaultTextStyle.of(context);
+
+    var baseStyle = widget.style;
+    if (widget.style == null || widget.style!.inherit) {
+      baseStyle = defaultTextStyle.style.merge(widget.style);
+    }
+
+    final needsDefaultFontSize = baseStyle!.fontSize == null;
+    TextStyle? renderStyle = widget.style;
+    if (needsDefaultFontSize) {
+      baseStyle = baseStyle.copyWith(fontSize: AutoSizeText._defaultFontSize);
+      renderStyle = (widget.style ?? const TextStyle()).copyWith(
+        fontSize: AutoSizeText._defaultFontSize,
+      );
+    }
+
+    var measurementStyle = baseStyle;
+    if (MediaQuery.boldTextOf(context)) {
+      measurementStyle = measurementStyle.merge(
+        const TextStyle(fontWeight: FontWeight.bold),
+      );
+    }
+
+    final lineHeightOverride = MediaQuery.maybeLineHeightScaleFactorOverrideOf(
+      context,
+    );
+    final letterSpacingOverride = MediaQuery.maybeLetterSpacingOverrideOf(
+      context,
+    );
+    final wordSpacingOverride = MediaQuery.maybeWordSpacingOverrideOf(context);
+    final measurementTextStyleOverride =
+        lineHeightOverride == null &&
+            letterSpacingOverride == null &&
+            wordSpacingOverride == null
+        ? null
+        : TextStyle(
+            height: lineHeightOverride,
+            letterSpacing: letterSpacingOverride,
+            wordSpacing: wordSpacingOverride,
+          );
+    measurementStyle = measurementStyle.merge(
+      measurementTextStyleOverride ?? const TextStyle(),
+    );
+
+    final measurementStrutStyle = widget.strutStyle?.merge(
+      StrutStyle(height: lineHeightOverride),
+    );
+    final effectiveOverflow =
+        widget.overflow ??
+        measurementStyle.overflow ??
+        defaultTextStyle.overflow;
+
+    return _EffectiveTextConfiguration(
+      baseStyle: baseStyle,
+      measurementStyle: measurementStyle,
+      measurementTextStyleOverride: measurementTextStyleOverride,
+      renderStyle: renderStyle,
+      measurementStrutStyle: measurementStrutStyle,
+      textAlign:
+          widget.textAlign ?? defaultTextStyle.textAlign ?? TextAlign.start,
+      textDirection: widget.textDirection ?? Directionality.of(context),
+      locale: widget.locale ?? Localizations.maybeLocaleOf(context),
+      softWrap: widget.softWrap ?? defaultTextStyle.softWrap,
+      overflow: effectiveOverflow,
+      maxLines: widget.maxLines ?? defaultTextStyle.maxLines,
+      textWidthBasis: defaultTextStyle.textWidthBasis,
+      textHeightBehavior:
+          defaultTextStyle.textHeightBehavior ??
+          DefaultTextHeightBehavior.maybeOf(context),
+      userScaler: _resolveUserTextScaler(context),
+    );
+  }
+
+  TextScaler _resolveUserTextScaler(BuildContext context) {
+    // ignore: deprecated_member_use_from_same_package
+    final legacyTextScaleFactor = widget.textScaleFactor;
+    if (widget.textScaler != null && legacyTextScaleFactor != null) {
+      throw ArgumentError(
+        'textScaler and textScaleFactor cannot both be specified.',
+      );
+    }
+    if (widget.textScaler case final textScaler?) {
+      return textScaler;
+    }
+    if (legacyTextScaleFactor != null) {
+      _requireFiniteNonNegative(legacyTextScaleFactor, 'textScaleFactor');
+      return TextScaler.linear(_canonicalCandidateZero(legacyTextScaleFactor));
+    }
+    return MediaQuery.textScalerOf(context);
+  }
+
+  void _validateProperties(int? maxLines) {
+    assert(
+      widget.overflow == null || widget.overflowReplacement == null,
+      'Either overflow or overflowReplacement must be null.',
+    );
+    assert(
+      maxLines == null || maxLines > 0,
+      'MaxLines must be greater than or equal to 1.',
+    );
+    assert(
+      widget.key == null || widget.key != widget.textKey,
+      'Key and textKey must not be equal.',
+    );
 
     if (widget.presetFontSizes == null) {
       assert(
-          widget.stepGranularity >= 0.1,
-          'StepGranularity must be greater than or equal to 0.1. It is not a '
-          'good idea to resize the font with a higher accuracy.');
-      assert(widget.minFontSize >= 0,
-          'MinFontSize must be greater than or equal to 0.');
+        widget.stepGranularity >= 0.1,
+        'StepGranularity must be greater than or equal to 0.1. It is not a '
+        'good idea to resize the font with a higher accuracy.',
+      );
+      assert(
+        widget.minFontSize >= 0,
+        'MinFontSize must be greater than or equal to 0.',
+      );
       assert(widget.maxFontSize > 0, 'MaxFontSize has to be greater than 0.');
-      assert(widget.minFontSize <= widget.maxFontSize,
-          'MinFontSize must be smaller or equal than maxFontSize.');
-      assert(widget.minFontSize / widget.stepGranularity % 1 == 0,
-          'MinFontSize must be a multiple of stepGranularity.');
-      if (widget.maxFontSize != double.infinity) {
-        assert(widget.maxFontSize / widget.stepGranularity % 1 == 0,
-            'MaxFontSize must be a multiple of stepGranularity.');
-      }
+      assert(
+        widget.minFontSize <= widget.maxFontSize,
+        'MinFontSize must be smaller or equal than maxFontSize.',
+      );
     } else {
-      assert(widget.presetFontSizes!.isNotEmpty,
-          'PresetFontSizes must not be empty.');
+      assert(
+        widget.presetFontSizes!.isNotEmpty,
+        'PresetFontSizes must not be empty.',
+      );
     }
   }
 
-  List _calculateFontSize(
-      BoxConstraints size, TextStyle? style, int? maxLines) {
-    final span = TextSpan(
-      style: widget.textSpan?.style ?? style,
-      text: widget.textSpan?.text ?? widget.data,
-      children: widget.textSpan?.children,
-      recognizer: widget.textSpan?.recognizer,
+  _CandidateSet _createCandidateSet(double referenceFontSize) {
+    final presetFontSizes = widget.presetFontSizes;
+    if (presetFontSizes != null) {
+      return _CandidateSet.presets(presetFontSizes);
+    }
+
+    _validateRegularCandidateInputs(
+      minFontSize: widget.minFontSize,
+      maxFontSize: widget.maxFontSize,
+      stepGranularity: widget.stepGranularity,
     );
 
-    final userScale =
-        widget.textScaleFactor ?? MediaQuery.textScaleFactorOf(context);
-
-    int left;
-    int right;
-
-    final presetFontSizes = widget.presetFontSizes?.reversed.toList();
-    if (presetFontSizes == null) {
-      final num defaultFontSize =
-          style!.fontSize!.clamp(widget.minFontSize, widget.maxFontSize);
-      final defaultScale = defaultFontSize * userScale / style.fontSize!;
-      if (_checkTextFits(span, defaultScale, maxLines, size)) {
-        return <Object>[defaultFontSize * userScale, true];
-      }
-
-      left = (widget.minFontSize / widget.stepGranularity).floor();
-      right = (defaultFontSize / widget.stepGranularity).ceil();
-    } else {
-      left = 0;
-      right = presetFontSizes.length - 1;
-    }
-
-    var lastValueFits = false;
-    while (left <= right) {
-      final mid = (left + (right - left) / 2).floor();
-      double scale;
-      if (presetFontSizes == null) {
-        scale = mid * userScale * widget.stepGranularity / style!.fontSize!;
-      } else {
-        scale = presetFontSizes[mid] * userScale / style!.fontSize!;
-      }
-      if (_checkTextFits(span, scale, maxLines, size)) {
-        left = mid + 1;
-        lastValueFits = true;
-      } else {
-        right = mid - 1;
-      }
-    }
-
-    if (!lastValueFits) {
-      right += 1;
-    }
-
-    double fontSize;
-    if (presetFontSizes == null) {
-      fontSize = right * userScale * widget.stepGranularity;
-    } else {
-      fontSize = presetFontSizes[right] * userScale;
-    }
-
-    return <Object>[fontSize, lastValueFits];
-  }
-
-  bool _checkTextFits(
-      TextSpan text, double scale, int? maxLines, BoxConstraints constraints) {
-    if (!widget.wrapWords) {
-      final words = text.toPlainText().split(RegExp('\\s+'));
-
-      final wordWrapTextPainter = TextPainter(
-        text: TextSpan(
-          style: text.style,
-          text: words.join('\n'),
-        ),
-        textAlign: widget.textAlign ?? TextAlign.left,
-        textDirection: widget.textDirection ?? TextDirection.ltr,
-        textScaleFactor: scale,
-        maxLines: words.length,
-        locale: widget.locale,
-        strutStyle: widget.strutStyle,
-      );
-
-      wordWrapTextPainter.layout(maxWidth: constraints.maxWidth);
-
-      if (wordWrapTextPainter.didExceedMaxLines ||
-          wordWrapTextPainter.width > constraints.maxWidth) {
-        return false;
-      }
-    }
-
-    final textPainter = TextPainter(
-      text: text,
-      textAlign: widget.textAlign ?? TextAlign.left,
-      textDirection: widget.textDirection ?? TextDirection.ltr,
-      textScaleFactor: scale,
-      maxLines: maxLines,
-      locale: widget.locale,
-      strutStyle: widget.strutStyle,
+    final upper = referenceFontSize
+        .clamp(widget.minFontSize, widget.maxFontSize)
+        .toDouble();
+    return _CandidateSet.regular(
+      minimum: widget.minFontSize,
+      upper: upper,
+      step: widget.stepGranularity,
     );
-
-    textPainter.layout(maxWidth: constraints.maxWidth);
-
-    return !(textPainter.didExceedMaxLines ||
-        textPainter.height > constraints.maxHeight ||
-        textPainter.width > constraints.maxWidth);
-  }
-
-  Widget _buildText(double fontSize, TextStyle style, int? maxLines) {
-    if (widget.data != null) {
-      return Text(
-        widget.data!,
-        key: widget.textKey,
-        style: style.copyWith(fontSize: fontSize),
-        strutStyle: widget.strutStyle,
-        textAlign: widget.textAlign,
-        textDirection: widget.textDirection,
-        locale: widget.locale,
-        softWrap: widget.softWrap,
-        overflow: widget.overflow,
-        textScaleFactor: 1,
-        maxLines: maxLines,
-        semanticsLabel: widget.semanticsLabel,
-      );
-    } else {
-      return Text.rich(
-        widget.textSpan!,
-        key: widget.textKey,
-        style: style,
-        strutStyle: widget.strutStyle,
-        textAlign: widget.textAlign,
-        textDirection: widget.textDirection,
-        locale: widget.locale,
-        softWrap: widget.softWrap,
-        overflow: widget.overflow,
-        textScaleFactor: fontSize / style.fontSize!,
-        maxLines: maxLines,
-        semanticsLabel: widget.semanticsLabel,
-      );
-    }
   }
 
   void _notifySync() {

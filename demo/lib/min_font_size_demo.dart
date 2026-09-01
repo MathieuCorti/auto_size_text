@@ -8,12 +8,13 @@ import 'utils.dart';
 class MinFontSizeDemo extends StatelessWidget {
   final bool richText;
 
-  MinFontSizeDemo(this.richText);
+  const MinFontSizeDemo(this.richText, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return AnimatedInput(
-      text: 'This String\'s size will not be smaller than 20. It will be '
+      text:
+          'This String\'s size will not be smaller than 20. It will be '
           'automatically resized to fit on 4 lines. Otherwise, the String will '
           'be ellipsized. Here is some random stuff, just to make sure it is '
           'long enough.',
@@ -24,11 +25,7 @@ class MinFontSizeDemo extends StatelessWidget {
               child: TextCard(
                 title: 'Text',
                 child: !richText
-                    ? Text(
-                        input,
-                        style: TextStyle(fontSize: 30),
-                        maxLines: 4,
-                      )
+                    ? Text(input, style: TextStyle(fontSize: 30), maxLines: 4)
                     : Text.rich(
                         spanFromString(input),
                         style: TextStyle(fontSize: 30),

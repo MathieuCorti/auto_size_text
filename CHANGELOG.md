@@ -1,3 +1,52 @@
+## 4.0.0
+
+### Breaking changes
+
+- Raised the supported SDK floor to Dart 3.11 and Flutter 3.41.
+- `textKey` now resolves to the element whose render object is the painted
+  paragraph; its widget is no longer guaranteed to be a `Text`.
+
+### Compatibility
+
+- Added `TextScaler` support to both constructors, preserving ambient and
+  explicit nonlinear accessibility scaling.
+- Kept `textScaleFactor` as a deprecated linear bridge. Supplying it together
+  with `textScaler` now throws `ArgumentError` in release mode.
+- Preserved the plain/rich constructors, `AutoSizeGroup`,
+  `AutoSizeGroupBuilder`, presets, and overflow replacement APIs.
+- Aligned measurement with rendering for bold text, metric overrides, strut,
+  direction, locale, wrapping, and inherited paragraph behavior.
+
+### Fixes
+
+- Reworked regular and preset candidate domains to support fractional minima,
+  validate invalid inputs at runtime, and keep logarithmic search.
+- Preserved rich span metadata and non-breaking spaces while measuring
+  `wrapWords: false` content.
+- Projected heterogeneous groups within each member's own candidate domain and
+  hardened group transfer, removal, notification, and disposal behavior.
+- Added intrinsic sizing, dry layout, and dry baseline support without
+  speculative group mutation. Lazy overflow replacements use the minimum-text
+  geometry for dry and intrinsic queries.
+- Added automatic wet layout for `WidgetSpan` children, including run scaling,
+  baselines, painting, hit testing, semantics, selection, and lifecycle. Inline
+  children intentionally contribute zero geometry to dry and intrinsic paths.
+- Disposed temporary text painters on success, early return, and failure paths.
+
+### Tooling and examples
+
+- Declared and validated the Dart 3.11 / Flutter 3.41 package floor and the
+  Flutter 3.47.2 upper test pin with current lints and downgrade coverage.
+- Modernized the Android demo while preserving its six scenarios and added
+  smoke coverage for navigation, rich text, groups, and disposal.
+- Added a deterministic Pub archive policy that keeps the package tests and
+  canonical example while excluding repository-only and local files.
+
+These changes address defect families reported upstream around text painter
+lifecycle, fractional candidate domains, non-breaking spaces, modern text
+scaling and metrics, intrinsic layout, inline widgets, and the demo scaffold.
+This changelog does not claim or perform closure of upstream issues.
+
 ## 3.0.0
 - Upgraded to null safety
 

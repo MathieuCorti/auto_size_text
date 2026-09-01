@@ -8,12 +8,13 @@ import 'utils.dart';
 class PresetFontSizesDemo extends StatelessWidget {
   final bool richText;
 
-  PresetFontSizesDemo(this.richText);
+  const PresetFontSizesDemo(this.richText, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return AnimatedInput(
-      text: 'This String has only three allowed sizes: 40, 20 and 14. It will '
+      text:
+          'This String has only three allowed sizes: 40, 20 and 14. It will '
           'be automatically resized to fit on 4 lines. With this setting, you '
           'have the most control.',
       builder: (input) {
@@ -23,11 +24,7 @@ class PresetFontSizesDemo extends StatelessWidget {
               child: TextCard(
                 title: 'Text',
                 child: !richText
-                    ? Text(
-                        input,
-                        style: TextStyle(fontSize: 40),
-                        maxLines: 4,
-                      )
+                    ? Text(input, style: TextStyle(fontSize: 40), maxLines: 4)
                     : Text.rich(
                         spanFromString(input),
                         style: TextStyle(fontSize: 40),

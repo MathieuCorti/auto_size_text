@@ -17,5 +17,5 @@ A clear and concise description of what you want to happen.
 A clear and concise description of any alternative solutions or features you've considered.
 
 **Version**
- - Flutter version: [e.g. 1.5.4]
- - auto_size_text version: [e.g. 1.2.1]
+ - Flutter version:
+ - auto_size_text version:

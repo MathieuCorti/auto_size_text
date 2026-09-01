@@ -3,7 +3,7 @@ name: Question
 about: Ask anything about AutoSizeText
 title: ''
 labels: question
-assignees: leisim
+assignees: ''
 
 ---
 
@@ -14,5 +14,5 @@ Please explain the problem you are running into.
 Provide a few simple lines of code to show your problem.
 
 **Version**
- - Flutter version: [e.g. 1.5.4]
- - auto_size_text version: [e.g. 1.2.1]
+ - Flutter version:
+ - auto_size_text version:

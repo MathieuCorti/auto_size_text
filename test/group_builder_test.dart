@@ -44,45 +44,109 @@ void _expectFontSizes(WidgetTester tester, double fontSize) {
   }
 }
 
-void main() {
-  testWidgets('Group sync', (tester) async {
-    await tester.pumpWidget(testWidget(width1: 300, width2: 300));
-
-    _expectFontSizes(tester, 50);
-
-    await tester.pumpWidget(testWidget(width1: 200, width2: 300));
-
-    _expectFontSizes(tester, 33);
-
-    await tester.pumpWidget(testWidget(width1: 200, width2: 150));
-
-    _expectFontSizes(tester, 25);
-
-    await tester.pumpWidget(testWidget(width1: 200, width2: 100));
-
-    _expectFontSizes(tester, 16);
-
-    await tester.pumpWidget(testWidget(width1: 60, width2: 60));
-
-    _expectFontSizes(tester, 10);
-
-    await tester.pumpWidget(testWidget(width1: 200, width2: 60));
-
-    _expectFontSizes(tester, 10);
-
-    await tester.pumpWidget(testWidget(width1: 200, width2: 250));
-
-    _expectFontSizes(tester, 33);
-
-    await tester.pumpWidget(testWidget(width1: 250, width2: 250));
-
-    _expectFontSizes(tester, 41);
-
-    await tester.pumpWidget(testWidget(width1: 300, width2: 300));
-    // Upsizing both requires an extra frame to settle on the new size.
-    await tester.pump();
-
-    _expectFontSizes(tester, 50);
-  });
+Future<void> _pumpGroupWidget(WidgetTester tester, Widget widget) async {
+  await tester.pumpWidget(widget);
+  await tester.pump();
 }
 
+void main() {
+  group('AutoSizeGroupBuilder', () {
+    testWidgets('should synchronize font sizes as layout changes', (
+      tester,
+    ) async {
+      await _pumpGroupWidget(tester, testWidget(width1: 300, width2: 300));
+
+      _expectFontSizes(tester, 50);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 200, width2: 300));
+
+      _expectFontSizes(tester, 33);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 200, width2: 150));
+
+      _expectFontSizes(tester, 25);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 200, width2: 100));
+
+      _expectFontSizes(tester, 16);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 60, width2: 60));
+
+      _expectFontSizes(tester, 10);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 200, width2: 60));
+
+      _expectFontSizes(tester, 10);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 200, width2: 250));
+
+      _expectFontSizes(tester, 33);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 250, width2: 250));
+
+      _expectFontSizes(tester, 41);
+
+      await _pumpGroupWidget(tester, testWidget(width1: 300, width2: 300));
+
+      _expectFontSizes(tester, 50);
+    });
+
+    testWidgets('should preserve its group identity across state rebuilds', (
+      tester,
+    ) async {
+      final observedGroups = <AutoSizeGroup>[];
+      var width = 100.0;
+      late StateSetter update;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return AutoSizeGroupBuilder(
+                builder: (context, group) {
+                  observedGroups.add(group);
+                  return Column(
+                    children: <Widget>[
+                      SizedBox(
+                        width: width,
+                        child: AutoSizeText(
+                          'XXXXXX',
+                          style: const TextStyle(fontSize: 60),
+                          minFontSize: 1,
+                          maxLines: 1,
+                          group: group,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 300,
+                        child: AutoSizeText(
+                          'XXXXXX',
+                          style: const TextStyle(fontSize: 60),
+                          minFontSize: 1,
+                          maxLines: 1,
+                          group: group,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      _expectFontSizes(tester, 16);
+
+      update(() => width = 300);
+      await tester.pump();
+      await tester.pump();
+      _expectFontSizes(tester, 50);
+
+      expect(observedGroups, hasLength(greaterThanOrEqualTo(2)));
+      expect(observedGroups, everyElement(same(observedGroups.first)));
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+  });
+}
