@@ -2,261 +2,281 @@
 
 Date : 2026-09-01
 
-Candidat revu : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
+Parent exact du lot : `3a1c343e88325b0020452be7c3258a902d87558f`
 
-Parent exact : `3a1c343e88325b0020452be7c3258a902d87558f`
+Candidat initial : `719d6a8df5f699b9ac8963dfb3034e56f71d12ad`
+
+Correctif contre-revu : `413ea87b156c2512f01fe39cc2bad524eca9b333`
+
+Correctif dans ce worktree : `6daaaa5ed39ebc0cba1acbf69c92ce8c807f40e4`
 
 Branche de revue : `codex/review-rich-text-performance`
 
-## Verdict
+## Verdict final
 
-**CHANGEMENTS REQUIS.**
+**ACCEPTÉ.**
 
-Le lot respecte les bornes de painters, de layouts, de requêtes de boxes et de
-dispose. Il ne matérialise pas le domaine de candidats, ne conserve aucun cache
-observable, ne mute pas l'arbre source et ne montre aucune fuite sur les probes
-ou sur les tests `leak_tracker`.
+Le finding bloquant de la première revue est fermé. Pour
+`wrapWords: false`, le texte visuel et ses ranges UTF-16 sont maintenant
+calculés exactement une fois par évaluation de configuration, avant la
+recherche. Pour `wrapWords: true`, ils ne sont jamais calculés. Le snapshot est
+local, immuable et abandonné à la fin du calcul ; aucun cache global, mutable
+ou partagé entre rebuilds n'est introduit.
 
-Un point reste cependant bloquant : le texte visuel et sa segmentation UTF-16
-sont recalculés pour chaque candidat de la dichotomie. Cela viole explicitement
-le budget de l'oracle adversarial corrigé, qui exige un seul scan de `N` par
-évaluation de configuration. Le défaut multiplie un coût et une allocation de
-taille `N` par le nombre de candidats effectivement testés.
+La recherche de tailles reste virtuelle et logarithmique. Chaque candidat de
+`wrapWords: false` conserve un seul painter auxiliaire et un seul layout non
+wrappé, jamais un painter par range. Chaque plage effectue au plus une requête
+de boxes, toutes les boxes sont additionnées, et chaque painter est disposé par
+un `finally`.
 
-Ce défaut est un risque de disponibilité réel et évitable, mais les preuves ne
-permettent pas de le qualifier de DoS asymptotiquement non borné : la
-dichotomie borne le multiplicateur et Flutter ne documente pas la complexité
-interne de `Paragraph.getBoxesForRange`.
+Aucun finding performance, ressources ou disponibilité ne reste actionnable
+dans le périmètre du lot 4.
 
-## Finding bloquant
+## Finding initial et fermeture
 
-### [P1] La segmentation indépendante du candidat est répétée dans la dichotomie
+La première revue, commit `f6419e7`, avait rejeté `719d6a8` parce que
+`toPlainText(includeSemanticsLabels: false)` et
+`_unbreakableTextRanges` étaient dans `_checkTextFits`, donc dans la closure de
+`findLargestThatFits`. Une grille virtuelle d'environ un milliard de valeurs
+répétait ainsi le scan trente fois.
 
-**Fichier :** `lib/src/auto_size_text.dart:473-492`, `:511-526`
+Le correctif déplace les seules opérations indépendantes du candidat :
 
-**Sévérité :** moyenne pour le produit, bloquante pour le gate du lot 4.
+- `lib/src/auto_size_text.dart:471-476` construit
+  `_UnbreakableTextSnapshot` avant `findLargestThatFits` ;
+- `lib/src/auto_size_text_layout.dart:87-98` produit une fois le texte visuel,
+  le scanne et stocke seulement une `List<TextRange>.unmodifiable` ;
+- `_checkTextFits` reçoit cette liste et n'appelle plus `toPlainText` ;
+- la branche `widget.wrapWords ? null : ...` court-circuite entièrement la
+  segmentation lorsque le wrapping de mots reste autorisé.
 
-`findLargestThatFits` appelle `_checkTextFits` pour chaque candidat. Ce dernier
-appelle à nouveau :
+### Preuve rouge/verte indépendante
 
-```dart
-final plainText = text.toPlainText(includeSemanticsLabels: false);
-for (final range in _unbreakableTextRanges(plainText)) { ... }
+Le test permanent corrigé a été copié sans modification sur `719d6a8`, dans
+une archive temporaire isolée, puis ciblé par son nom exact :
+
+```text
+should segment once per configuration outside candidate search
 ```
 
-Le contenu et les offsets du texte ne dépendent pourtant ni du candidat ni de
-son scaler. Le clone de spacing est déjà correctement calculé hors de la
-closure, lignes 465-470 ; le même principe doit s'appliquer au texte visuel et
-aux ranges.
+| SDK exact | `719d6a8` | `6daaaa5` |
+|---|---|---|
+| Flutter 3.41.0 | rouge : `Expected <1>, Actual <30>` | vert dans la suite 96/96 |
+| Flutter 3.47.2 | rouge : `Expected <1>, Actual <30>` | vert dans la suite 96/96 |
 
-L'oracle adversarial corrigé `6251a04`, section « Budget de segmentation et
-risque de disponibilité », impose :
+Le rouge arrive à la première configuration `wrapWords: false`, après que le
+même test a déjà vérifié zéro appel pour `wrapWords: true`. Ce n'est donc ni un
+test trivial, ni une assertion sur un fake sans rapport avec le produit : le
+sous-type de `TextSpan` observe l'appel public réel à `computeToPlainText` et a
+échoué exactement sur le défaut revu.
 
-- un seul calcul du texte visuel et des ranges par configuration ;
-- un passage UTF-16 sur `N` ;
-- au plus `K × E` requêtes de boxes, où `E` est le nombre de candidats testés.
+## Validité du compteur permanent
 
-Le compteur temporaire donne, pour un domaine virtuel de
-`1 000 000 001` candidats :
+`test/wrap_words_test.dart` utilise un compteur local au test et un sous-type
+privé de `TextSpan`. Il ne dépend d'aucun helper privé du package et ne modifie
+pas le code produit.
 
-| SDK | Candidats testés `E` | `toPlainText` | Scans de ranges | Attendu |
-|---|---:|---:|---:|---:|
-| Flutter 3.41.0 | 30 | 30 | 30 | 1 |
-| Flutter 3.47.2 | 30 | 30 | 30 | 1 |
+Le fixture force une grille régulière d'environ `1 000 000 001` valeurs avec :
 
-La lecture du code généralise directement la preuve : le coût de segmentation
-est `Θ(E × N)` au lieu du budget `Θ(N)`. Avec la limite exacte du domaine du
-lot 2, `E <= ceil(log2(L + 1))` et reste borné ; la correction demeure exigée
-par le gate et évite un multiplicateur pouvant atteindre quelques dizaines.
+- référence `100 000 000` ;
+- minimum et pas `0,1` ;
+- boîte `0 × 0` ;
+- `overflowReplacement`, qui empêche le rendu final du span de polluer le
+  compteur.
 
-**Correction requise, non produite dans cette revue :** calculer le texte visuel
-et matérialiser uniquement ses `TextRange` une fois dans
-`_calculateFontSize`, avant `findLargestThatFits`, puis passer ces ranges à
-`_checkTextFits`. Ne pas mettre en cache ce résultat entre builds ou entre
-configurations. Ajouter un test déterministe qui impose exactement un scan
-pour plusieurs candidats, sans seuil de temps mural.
+Les assertions verrouillent successivement :
 
-## Cartographie structurelle du coût
+1. zéro appel avec `wrapWords: true` ;
+2. exactement un appel avec `wrapWords: false` malgré trente candidats ;
+3. exactement un nouvel appel après changement d'override ;
+4. exactement un nouvel appel après remplacement du span source.
+
+Le test prouve donc à la fois l'absence de segmentation inutile, la borne d'un
+scan par build/configuration et l'absence de cache réutilisé à travers une
+configuration devenue différente.
+
+## Delta sémantique
+
+### Même texte visuel que le painter
+
+Pour le constructeur simple, le snapshot reçoit un `TextSpan` contenant
+exactement `widget.data`. Pour le constructeur riche, il reçoit
+`measurementTextSpan`, c'est-à-dire le span source ou son clone fidèle de
+spacing. Les overrides ne changent ni texte, ni ordre, ni offsets, ni labels ;
+`includeSemanticsLabels: false` reste explicite.
+
+Le painter candidat reçoit ensuite le parent synthétique et le même
+`measurementTextSpan`. Le snapshot et le painter observent donc la même suite
+de code units. Aucun `substring`, `split`, `join`, flattening de style ou
+normalisation n'est réintroduit.
+
+La garde `WidgetSpan` reste avant le snapshot. Le lot n'essaie donc pas de
+mesurer un arbre avec placeholders non dimensionnés.
+
+### Rebuilds et ownership
+
+Le snapshot est une variable `final` locale à `_calculateFontSize`. Sa liste
+est non modifiable. Il n'existe :
+
+- aucun champ d'état pour le texte ou les ranges ;
+- aucune clé de cache par span, scaler, contraintes ou `MediaQuery` ;
+- aucune écriture dans le `TextSpan` ou ses listes ;
+- aucune valeur réutilisée au pump suivant.
+
+Un changement de span, d'override, de scaler ou de contrainte reconstruit donc
+la configuration et le snapshot. Le `Text` final continue de recevoir l'arbre
+source, sans clone mis en cache ou double override observable.
+
+## Cartographie finale du coût
 
 Notations :
 
 - `N` : code units du texte visuel ;
-- `K` : plages non vides, avec `K <= ceil(N / 2)` ;
+- `K` : ranges non vides, avec `K <= ceil(N / 2)` ;
 - `S` : `TextSpan` standards clonés sous override ;
-- `E` : candidats effectivement testés par la dichotomie ;
-- `B(r)` : boxes rendues par Flutter pour une plage `r`.
+- `E` : candidats effectivement évalués ;
+- `B(r)` : boxes renvoyées par Flutter pour le range `r`.
 
-### Par évaluation de configuration
+### Préparation par configuration
 
-| Ressource | Borne observée dans le candidat |
+| Ressource | Borne finale |
 |---|---|
-| Domaine de candidats | Stockage constant pour une grille régulière ; accès indexé, recherche `O(log L)`. |
-| Clone RichText | Zéro sans override ; sinon `S` nouveaux spans et une nouvelle liste par nœud standard ayant des enfants. Le clone est hors de la boucle candidats. |
-| Texte visuel et segmentation | Actuellement `E` chaînes de taille `N` et `E` scans RegExp ; doit devenir un seul texte et un seul scan. |
-| Painter auxiliaire | Exactement un par candidat avec `wrapWords:false`. |
-| Layout auxiliaire | Exactement un layout non wrappé par painter auxiliaire. |
-| Requêtes de boxes | Au plus une par plage et candidat, arrêt au premier dépassement : `<= K × E`. |
-| Painter principal | Zéro si une plage échoue ; sinon exactement un par candidat. |
+| `wrapWords: true` | Zéro `toPlainText`, zéro scan, zéro liste de ranges. |
+| `wrapWords: false` | Un `toPlainText` de taille `N`, un scan UTF-16 et une liste immuable de `K` paires d'offsets. |
+| Clone riche | Zéro sans override ; sinon `O(S)`, une seule fois avant la recherche. |
+| Domaine régulier | Stockage constant : minimum, borne, pas, longueurs et flags ; aucune liste proportionnelle à `C`. |
+| Recherche | `E <= ceil(log2(L + 1))` évaluations pour `L` candidats. |
+
+Pendant la construction du snapshot, le pic inclut la chaîne visuelle de
+taille `N` et la liste de `K` ranges. La chaîne n'est pas conservée dans
+`_UnbreakableTextSnapshot`; seule la liste d'offsets vit pendant la recherche.
+Cette matérialisation `O(K)` est exactement celle autorisée par l'oracle
+adversarial et remplace les `E` chaînes/scans du code rejeté.
+
+### Par candidat avec `wrapWords: false`
+
+| Ressource | Borne finale |
+|---|---|
+| Painter auxiliaire | Exactement un. |
+| Layout auxiliaire | Exactement un, à largeur infinie. |
+| Requêtes de boxes | Au plus une par range, avec retour au premier dépassement : `<= K`. |
+| Largeur d'un range | `sum(abs(right - left))` sur les `B(r)` boxes. |
+| Painter principal | Zéro après rejet d'un range ; sinon exactement un. |
 | Layout principal | Zéro ou un, parallèlement au painter principal. |
-| Dispose | Exactement un par painter créé ; les deux chemins sont protégés par `finally`. |
-| Pic de painters du package | Un : l'auxiliaire est disposé avant la création éventuelle du principal. |
+| Dispose | Un par painter créé, dans son `finally`. |
+| Pic de painters package | Un : l'auxiliaire est disposé avant le principal. |
 
-Il n'existe donc aucun painter ni layout par plage. Pour `E` candidats, le
-nombre total de painters et de layouts appartient à `[E, 2E]`, et le nombre de
-disposals lui est égal.
+Il n'existe aucun painter ni layout par range. Pour `E` candidats, le nombre
+total de painters/layouts/disposals reste dans `[E, 2E]` et les requêtes de
+boxes restent `<= K × E`.
 
-### Mémoire transitoire
+## Probes et bornes conservées
 
-Le nouveau chemin évite les `split` et `join` du parent. Les ranges sont
-actuellement produits en streaming, sans substring ni copie de span par plage.
-Chaque appel de boxes produit toutefois une liste temporaire. Sur les deux SDK,
-`TextPainter.getBoxesForSelection` délègue à
-`Paragraph.getBoxesForRange`; le moteur copie un vecteur C++ vers un
-`Float32List`, puis décode les éléments en `TextBox` Dart. Le pic lié à une
-requête est donc proportionnel à `B(r)`, pas seulement au nombre de ranges.
+Les probes temporaires de la première revue avaient instrumenté les deux
+révisions et les deux SDK. Le correctif ne touche ni la recherche, ni la
+création/layout/dispose des painters, ni la boucle de boxes ; leurs compteurs
+restent applicables :
 
-Le probe bidi `A\u00A0אב\u00A0` répété a produit 513 boxes pour une seule
-plage. La liste a été libérée après le fold et le painter après le retour
-anticipé. Aucune accumulation inter-plages n'est présente.
+| Entrée, un candidat | Ranges | Appels boxes | Boxes | Painters/layouts/disposals |
+|---|---:|---:|---:|---:|
+| simple `A/espace`, 2 048 code units | 1 024 | 1 024 | 1 024 | 2 / 2 / 2 |
+| riche `A/espace`, 2 048 runs | 1 024 | 1 024 | 1 024 | 2 / 2 / 2 |
+| simple ou riche `A/NBSP`, 2 048 code units/runs | 1 | 1 | 1 | 1 / 1 / 1 |
+| mixte `A/espace/A/NBSP`, 2 048 runs | 513 | 513 | 513 | 2 / 2 / 2 |
+| bidi multi-box, 1 280 code units | 1 | 1 | 513 | 1 / 1 / 1 |
+| plage NBSP unique, 65 537 code units | 1 | 1 | 1 | 1 / 1 / 1 |
 
-Le clone de spacing est linéaire dans les spans standards et local au build.
-Avec 2 048 runs plats, les compteurs donnent 2 049 clones (racine comprise),
-une liste enfant, quelle que soit la taille du domaine candidat. Sans override,
-le span source est réutilisé. Les probes ont vérifié après chaque pump
-l'identité de la liste source et l'absence de changement de style.
+Le fixture bidi confirme que le coût mémoire temporaire dépend de `B(r)` :
+une requête a renvoyé 513 boxes, toutes consommées par le fold, sans
+accumulation inter-ranges.
 
-## Probes reproductibles et résultats
+Une grille de `1 000 000 001` valeurs a produit 30 évaluations et seulement 35
+lectures indexées. Elle n'a matérialisé aucune liste de candidats. Sur 1 000
+rebuilds, les compteurs donnaient exactement 2 000 painters, 2 000 layouts,
+2 000 disposals, zéro painter vivant à la fin et un pic de un.
 
-Les probes temporaires ont instrumenté les deux révisions dans des copies
-isolées. Ils ont été exécutés sous les toolchains exactes :
+### Croissance informative `N/2N/4N`
+
+Les mesures murales initiales utilisaient un seul candidat pour les corpus de
+croissance ; le déplacement du snapshot ne change donc pas leur nombre de
+scans. Elles restent un signal sur les boxes et les milliers de runs :
+
+| SDK | Cas candidat | `N` | `2N` | `4N` |
+|---|---|---:|---:|---:|
+| 3.41 | simple `A/espace` | 4,53 ms (8 192) | 13,17 ms | 23,60 ms |
+| 3.47 | simple `A/espace` | 5,29 ms (8 192) | 13,39 ms | 25,05 ms |
+| 3.41 | riche `A/espace/NBSP` | 4,04 ms (512 runs) | 5,25 ms | 10,15 ms |
+| 3.47 | riche `A/espace/NBSP` | 5,02 ms (512 runs) | 6,17 ms | 10,11 ms |
+
+Ces courbes restent proches d'une croissance linéaire sur les fenêtres
+mesurées. Elles ne constituent pas un seuil de test et ne contractualisent pas
+la complexité interne de Flutter.
+
+## Vérifications finales sur SDK exacts
+
+Les validations ont été relancées indépendamment sur une archive propre de
+`6daaaa5` :
 
 ```text
 Flutter 3.41.0, revision 44a626f4f0, Dart 3.11.0
 Flutter 3.47.2, revision d3b14c8769, Dart 3.13.2
 ```
 
-Chaque mesure murale est la médiane de trois pumps après warm-up. Elle est un
-signal diagnostique seulement : aucun seuil temporel n'est proposé comme gate.
-Les compteurs d'opérations sont, eux, déterministes.
+| Commande | Flutter 3.41.0 | Flutter 3.47.2 |
+|---|---|---|
+| analyse `--fatal-infos --fatal-warnings lib test example/main.dart` | aucun diagnostic | aucun diagnostic |
+| suite racine complète `--no-pub` | 96/96 | 96/96 |
+| test compteur permanent | vert dans la suite | vert dans la suite |
+| lifecycle/leak, retours anticipés et exception | verts dans la suite | verts dans la suite |
 
-### Croissance `N/2N/4N`
+## Disponibilité : limites exactes
 
-Temps médians en millisecondes :
+- **Coût `O(N)` inévitable :** produire une fois le texte visuel, le scanner
+  une fois, stocker `K` offsets et cloner les `S` spans lorsque Flutter impose
+  un override.
+- **Coût candidat attendu :** un layout fidèle et jusqu'à `K` appels de boxes
+  par candidat. La correction ne tente pas de fusionner les ranges et ne perd
+  aucun style.
+- **Risque interne non borné par l'API :** Flutter documente le résultat de
+  `getBoxesForRange`, pas sa complexité. Le nombre `B(r)` de boxes est lui aussi
+  dépendant du bidi et des runs.
+- **DoS démontré :** aucun. Les corpus 32 768/65 537 code units, 2 048 runs, le
+  domaine milliardaire et 1 000 rebuilds terminent sur les deux SDK sans fuite
+  ni croissance explosive dans les fenêtres observées.
 
-| SDK | Révision | Cas | `N` | `2N` | `4N` |
-|---|---|---|---:|---:|---:|
-| 3.41 | parent | simple, `A/espace` | 2,02 (8 192) | 3,27 | 6,19 |
-| 3.41 | candidat | simple, `A/espace` | 4,53 (8 192) | 13,17 | 23,60 |
-| 3.47 | parent | simple, `A/espace` | 3,27 (8 192) | 4,77 | 8,67 |
-| 3.47 | candidat | simple, `A/espace` | 5,29 (8 192) | 13,39 | 25,05 |
-| 3.41 | parent | riche, `A/espace/NBSP` | 1,35 (512 runs) | 1,48 | 2,39 |
-| 3.41 | candidat | riche, `A/espace/NBSP` | 4,04 (512 runs) | 5,25 | 10,15 |
-| 3.47 | parent | riche, `A/espace/NBSP` | 1,25 (512 runs) | 1,48 | 1,93 |
-| 3.47 | candidat | riche, `A/espace/NBSP` | 5,02 (512 runs) | 6,17 | 10,11 |
+## Recommandations non bloquantes
 
-Le candidat reste proche d'une croissance linéaire sur ces fenêtres. Il est
-plus coûteux que le parent pour les milliers de runs, ce qui est cohérent avec
-le clone fidèle et les appels de boxes. Les courbes ne démontrent pas une
-croissance quadratique, mais ne peuvent pas contractualiser le coût interne de
-Flutter.
-
-### Compteurs discriminants
-
-| Entrée, un candidat | Ranges | Appels boxes | Boxes | Painters/layouts/disposals | Clones |
-|---|---:|---:|---:|---:|---:|
-| simple `A/espace`, 2 048 code units | 1 024 | 1 024 | 1 024 | 2 / 2 / 2 | 0 |
-| riche `A/espace`, 2 048 runs | 1 024 | 1 024 | 1 024 | 2 / 2 / 2 | 2 049 |
-| simple `A/NBSP`, 2 048 code units | 1 | 1 | 1 | 1 / 1 / 1 | 0 |
-| riche `A/NBSP`, 2 048 runs | 1 | 1 | 1 | 1 / 1 / 1 | 2 049 |
-| mixte `A/espace/A/NBSP`, 2 048 runs | 513 | 513 | 513 | 2 / 2 / 2 | 2 049 |
-| bidi multi-box, 1 280 code units | 1 | 1 | 513 | 1 / 1 / 1 | 0 |
-| plage NBSP unique, 65 537 code units | 1 | 1 | 1 | 1 / 1 / 1 | 0 |
-
-La plage unique de 65 537 code units a pris 5,08/9,93 ms dans le candidat sur
-3.41/3.47, contre 10,84/15,10 ms sur le parent, qui produisait 32 769 éléments
-par `split`. Ce cas confirme l'amélioration mémoire/temps du chemin NBSP et
-l'absence de copie par plage.
-
-### Domaine virtuel et cycle de vie
-
-Pour une grille régulière de `1 000 000 001` candidats, les deux SDK ont
-observé 30 évaluations et seulement 35 lectures indexées. Aucune liste
-proportionnelle au domaine n'a été créée. Dans le candidat : 30 painters
-auxiliaires, 10 painters principaux, 40 layouts et 40 disposals. Le parent
-créait 60 painters/layouts/disposals dans le même fixture.
-
-Sur 1 000 rebuilds, les deux SDK donnent exactement :
-
-```text
-1 000 painters auxiliaires + 1 000 painters principaux
-= 2 000 layouts = 2 000 disposals
-livePainters final = 0 ; peakLivePainters = 1
-```
-
-Les suites permanentes ciblées
-`text_painter_lifecycle_test.dart`, `wrap_words_test.dart` et
-`rich_text_test.dart` passent aussi 28/28 sur les deux SDK. Les tests lifecycle
-incluent le suivi des ressources natives, les retours anticipés, l'exception de
-layout, les rebuilds et le retrait d'un groupe.
-
-## Disponibilité : ce qui est prouvé et ce qui ne l'est pas
-
-- **`O(N)` inévitable :** produire le texte visuel une fois, le scanner une
-  fois, construire/layout le paragraphe fidèle et cloner les `S` spans lorsque
-  Flutter impose un override.
-- **Risque interne non borné par un contrat :** les `K` appels natifs de boxes
-  par candidat et le nombre `B(r)` de boxes. Flutter documente le résultat, pas
-  la complexité de `getBoxesForRange`. Le lot ne peut revendiquer mieux.
-- **Défaut réel :** le scan et la chaîne `toPlainText` sont répétés `E` fois.
-  C'est une violation déterministe du budget et une amplification évitable.
-- **DoS démontré :** aucun. Les probes 32 768 code units, 65 537 code units,
-  2 048 runs, domaine virtuel milliardaire et 1 000 rebuilds terminent sur les
-  deux SDK, sans fuite ni croissance murale explosive. Une entrée texte reste
-  naturellement non bornée par l'API appelante.
-
-## Mutation, cache et ownership
-
-Le diff ne met en cache ni ranges, ni painter, ni clone, ni résultat de
-candidat. Chaque build reconstruit sa configuration et son clone local. Le
-`Text` final reçoit toujours le span source ; l'arbre de mesure reçoit le clone
-éventuel. Les listes source ne sont ni triées, ni remplacées, ni écrites.
-
-Cette absence de cache évite toute observation d'une ancienne configuration
-après changement de scaler, spacing ou contraintes. La correction du finding
-doit rester locale à une seule invocation de `_calculateFontSize` pour
-conserver cette propriété.
-
-## Recommandations non bloquantes après correction
-
-- Conserver un probe de benchmark hors suite fonctionnelle, sans seuil mural,
-  pour surveiller les courbes 8k/16k/32k et les milliers de spans.
-- Documenter que `K` appels natifs par candidat sont intentionnels et que la
-  complexité moteur n'est pas promise.
-- Garder un fixture bidi qui compte plusieurs centaines de boxes afin de
-  détecter une future accumulation des listes ou un calcul sur une seule box.
+- Conserver hors suite fonctionnelle un benchmark sans seuil mural pour suivre
+  les courbes 8k/16k/32k et les milliers de spans.
+- Garder le fixture bidi multi-box afin de détecter une future accumulation de
+  listes ou une réduction erronée à une seule box.
+- Continuer à documenter que la complexité native de Flutter n'est pas une
+  garantie du package.
 
 ## Pré-conclusion `find-bugs`
 
-Fichiers du diff lus intégralement :
+Fichiers du correctif lus intégralement :
 
 - `lib/src/auto_size_text.dart` ;
 - `lib/src/auto_size_text_layout.dart` ;
 - `maintenance/implementation/lot-4-rich-text.md` ;
-- `test/rich_text_test.dart` ;
 - `test/wrap_words_test.dart`.
 
-Ont aussi été relus : le lot 4 de la roadmap, l'oracle RichText, l'oracle
-adversarial corrigé `6251a04`, les sources `TextPainter`/`Paragraph` des deux
-SDK et les tests lifecycle existants.
+Le diff complet `413ea87^..413ea87` a été relu, ainsi que la revue performance
+initiale, le lot 4 de la roadmap, les oracles RichText et adversarial, les
+tests RichText/lifecycle et les délégations Flutter
+`TextPainter.getBoxesForSelection` / `Paragraph.getBoxesForRange`.
 
-Surface d'entrée : texte simple, topologie et métadonnées `InlineSpan`, code
-units UTF-16, contraintes, direction/locale, overrides `MediaQuery`, scalers et
-domaine numérique de candidats. Aucun accès réseau, fichier, base de données,
-session, authentification, autorisation ou cryptographie n'est ajouté.
+Surface d'entrée : texte simple, arbre et métadonnées `InlineSpan`, code units
+UTF-16, contraintes, direction/locale, overrides `MediaQuery`, scalers et
+domaine numérique de candidats. Le correctif n'ajoute aucun accès réseau,
+fichier, base de données, session, authentification, autorisation ou
+cryptographie.
 
 Checklist : injection, XSS, authentification, autorisation/IDOR, CSRF, session,
-cryptographie et information disclosure non applicables ; aucune race ou
-mutation partagée trouvée ; domaine numérique non matérialisé ; disposal et
-exceptions sûrs ; un finding de disponibilité/DoS au sens du budget de scan ;
-aucun autre défaut performance ou ressources confirmé. La complexité native de
-`getBoxesForRange` reste la seule zone impossible à borner par revue de l'API.
+cryptographie et information disclosure non applicables ; aucune race, TOCTOU,
+mutation partagée ou cache périmé ; domaine numérique non matérialisé ; aucune
+régression métier observée ; painters et exceptions sûrs ; finding DoS/ressource
+initial fermé. La complexité native de `getBoxesForRange` reste la seule zone
+impossible à borner par revue de l'API et est explicitement documentée comme
+limitation, pas comme garantie.
