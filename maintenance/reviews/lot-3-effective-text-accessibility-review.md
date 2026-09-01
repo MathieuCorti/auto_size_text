@@ -10,13 +10,16 @@ Première revue : `02dd06d75044ed636fba2717856f52b392adec89`
 
 Correctif re-revu : `a6dea62a564c6bf85734a5def9df457a82d37ca1`
 
+Correctif de provenance de licence :
+`2ce954156c69d62c726479b2d200f2cc1db83e22`
+
 Branche de revue : `codex/review-effective-text-a11y`
 
 Périmètre : configuration effective du texte simple positif, composition de
 `TextScaler`, parité entre le fitter et le vrai `RenderParagraph`, sémantique
 de base, non-régression historique #25 et delta correctif `02dd06d..a6dea62`.
-La revue n'a modifié ni le produit ni les tests ; ce rapport est son seul
-livrable.
+La relecture finale couvre aussi le delta de licence `b38098e..2ce9541`. La
+revue n'a modifié ni le produit ni les tests ; ce rapport est son seul livrable.
 
 ## Verdict final
 
@@ -33,6 +36,11 @@ Le delta corrige aussi une régression de compatibilité de groupe introduite pa
 le candidat initial : le groupe republie l'unité effective historique et un
 test hétérogène avec les facteurs legacy 1 et 2 vérifie `[20, 20]`. Le code de
 mesure du texte non groupé reste inchangé par cette correction.
+
+La relecture finale du correctif `2ce9541` conserve ce verdict. Son delta unique
+est la licence Noto Naskh ; code, tests et binaires TTF sont identiques à
+`b38098e`. La provenance est désormais celle de la licence ajoutée avec la TTF
+source dans l'historique Flutter engine.
 
 ## Clôture des findings initiaux
 
@@ -89,14 +97,45 @@ de test et ne sont pas ajoutés aux assets des clients.
 | `auto_size_metric_roboto_bold.ttf` | 2 632 | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` |
 | `auto_size_metric_naskh_locl.ttf` | 5 212 | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` |
 | `LICENSE-Roboto.txt` | 11 358 | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
-| `LICENSE-NotoNaskhArabic.txt` | 4 350 | `e2729335a9a3c01e2d36ad91bbe096b53e39a442ddcd84d85f358fad7a91a8f0` |
+| `LICENSE-NotoNaskhArabic.txt` | 4 301 | `c3dd4c678171e42146614fd4fd132f474df05f7bd12d1348b4c5af50172c0e8f` |
 
 Les Roboto sources sont identiques dans les artefacts des deux SDK et la
-licence Apache-2.0 complète est adjacente. La Noto Naskh source est identique
-dans leurs fixtures engine ; la licence OFL-1.1 complète est adjacente. Une
-inspection des tables confirme regular/bold pour Roboto et, pour Noto Naskh,
-les tables de substitution/localisation nécessaires aux formes `ar`/`fa`.
-Les tailles et SHA recalculés indépendamment concordent avec le journal.
+licence Apache-2.0 complète est adjacente. Une inspection des tables confirme
+regular/bold pour Roboto et, pour Noto Naskh, les tables de
+substitution/localisation nécessaires aux formes `ar`/`fa`.
+
+Pour Noto Naskh, le commit Flutter engine
+`e1a8bb2a0a097fd33079e0eba17ba7e73cec9d89` a ajouté ensemble
+`NotoNaskhArabic-Regular.ttf` et `NotoNaskhArabic-LICENSE.txt`. Le blob Git de
+la TTF de ce commit (`ee6cdaa35bc0ef86c1183726f9867655b0b1aef6`) est
+exactement celui des sources installées de Flutter 3.41.0 et 3.47.2 ; leurs
+SHA-256 sont également identiques
+(`6b999662f669b2c9b00c10ce4a110b6f5179c20f3f77e5ccb897e3ab965cf9f5`).
+La fixture est un sous-ensemble de cette source.
+
+La licence corrigée reprend intégralement le blob OFL-1.1 historique associé
+`d952d62c065f3f35fb83a173496e90b21525aef3`. Son blob Git
+`88cbb72152efe820ec9551583db1185104966fa0` en diffère seulement par le
+déplacement d'un LF terminal en tête de fichier : même longueur de 4 301
+octets, même texte après normalisation des blancs de bord, aucune attribution
+ajoutée ou retranchée. Son SHA-256 a été recalculé ci-dessus. La licence
+complète reste adjacente à la fixture.
+
+## Relecture bornée du correctif de licence
+
+Le diff `b38098e..2ce9541` contient exactement un fichier modifié :
+`test/assets/fonts/LICENSE-NotoNaskhArabic.txt`, avec 26 lignes ajoutées et 26
+retirées par reformatage. L'ancienne ligne `Copyright 2014 Google Inc.` ne
+provenait pas de la licence livrée avec cette TTF engine ; elle a été retirée.
+Le texte OFL nouvellement versionné correspond à sa provenance vérifiable.
+
+Le diff est vide pour `lib/`, les fichiers Dart de `test/`, les trois TTF, les
+manifests et le journal d'implémentation. La parité produit, les témoins
+métriques, les mutants et les résultats complets du verdict `b38098e` ne sont
+donc pas affectés. Un sanity ciblé a néanmoins rechargé les fontes et exercé
+les vrais `RenderParagraph` : 21/21 sous Flutter 3.41.0 et 21/21 sous Flutter
+3.47.2. La résolution locale haute a ensuite été restaurée et le lock canonique
+est resté inchangé.
 
 ## Parité produit cumulée
 
