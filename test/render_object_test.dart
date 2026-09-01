@@ -4,6 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+final class _ThrowingTextScaler extends TextScaler {
+  const _ThrowingTextScaler(this.error);
+
+  final Object error;
+
+  @override
+  double scale(double fontSize) => throw error;
+
+  @override
+  double get textScaleFactor => 1;
+}
+
 void main() {
   group('AutoSizeText render object', () {
     testWidgets(
@@ -261,6 +273,101 @@ void main() {
       expect(tester.binding.hasScheduledFrame, isFalse);
       await tester.pump();
       expect(first.getDryLayout(constraints), first.getDryLayout(constraints));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('should recover every dry metric after a user scaler failure', (
+      tester,
+    ) async {
+      final key = GlobalKey();
+      late StateSetter rebuild;
+      TextScaler scaler = TextScaler.noScaling;
+      await tester.pumpWidget(
+        _host(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return AutoSizeText(
+                'Recoverable dry metrics',
+                key: key,
+                style: const TextStyle(fontSize: 24),
+                minFontSize: 8,
+                maxLines: 1,
+                textScaler: scaler,
+              );
+            },
+          ),
+        ),
+      );
+
+      final render = tester.renderObject<RenderBox>(find.byKey(key));
+      const constraints = BoxConstraints(
+        minWidth: 11,
+        maxWidth: 180,
+        minHeight: 7,
+        maxHeight: 60,
+      );
+      final metrics = <Object? Function()>[
+        () => render.getDryLayout(constraints),
+        () => render.getDryBaseline(constraints, TextBaseline.alphabetic),
+        () => render.getMinIntrinsicWidth(60),
+        () => render.getMaxIntrinsicWidth(60),
+        () => render.getMinIntrinsicHeight(180),
+        () => render.getMaxIntrinsicHeight(180),
+      ];
+      final validMetrics = metrics.map((metric) => metric()).toList();
+      final fallbacks = <Object?>[
+        constraints.constrain(Size.zero),
+        null,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+      ];
+
+      for (var index = 0; index < metrics.length; index += 1) {
+        final original = StateError('scaler failure $index');
+        rebuild(() => scaler = _ThrowingTextScaler(original));
+        await tester.pump(null, EnginePhase.build);
+        expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
+
+        expect(metrics[index](), fallbacks[index]);
+        expect(tester.takeException(), same(original));
+        expect(tester.takeException(), isNull);
+
+        rebuild(() => scaler = TextScaler.noScaling);
+        await tester.pump(null, EnginePhase.build);
+        expect(tester.renderObject<RenderBox>(find.byKey(key)), same(render));
+        expect(metrics[index](), validMetrics[index]);
+        expect(tester.takeException(), isNull);
+      }
+    });
+
+    testWidgets('should preserve the original user scaler failure during wet', (
+      tester,
+    ) async {
+      final original = StateError('wet scaler failure');
+      late StateSetter rebuild;
+      TextScaler scaler = TextScaler.noScaling;
+      await tester.pumpWidget(
+        _host(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return AutoSizeText(
+                'Wet failure',
+                style: const TextStyle(fontSize: 24),
+                textScaler: scaler,
+              );
+            },
+          ),
+        ),
+      );
+
+      rebuild(() => scaler = _ThrowingTextScaler(original));
+      await tester.pump();
+
+      expect(tester.takeException(), same(original));
       expect(tester.takeException(), isNull);
     });
   });
