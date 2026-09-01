@@ -6,241 +6,247 @@ Branche revue : `codex/review-effective-text`
 
 Parent exact : `a13534cd12842b2e6847feb4963842175a96ee10`
 
-Commit candidat : `cac342c8bdb0fb1e874cb7d18d609c691a46d5a5`
+Candidat initial : `cac342c8bdb0fb1e874cb7d18d609c691a46d5a5`
 
-Périmètre : API `TextScaler`, compatibilité de `textScaleFactor`, composition
-du scaler, configuration effective du texte simple, recherche, frontière avec
-les groupes et qualité des preuves du lot 3. Aucun correctif produit n'a été
-écrit par cette revue.
+Première revue : `9b948eac2aa3f6c47900e3971218fa8f9c5e9902`
 
-## Verdict
+Candidat corrigé : `982117dc37a4c57d306b601319446f5d16a7125f`
 
-**CHANGEMENTS REQUIS.**
+Périmètre : relecture cumulative `a13534c...982117d` et relecture corrective
+`9b948ea..982117d`, selon `developing-flutter`, `effective-dart/testing` et
+`find-bugs`. Aucun correctif produit n'a été écrit par cette revue.
 
-L'API publique, le scaler composé et la configuration effective du texte
-simple sont statiquement conformes à l'oracle, et toutes les commandes de la
-matrice produit sont vertes. Aucun défaut produit n'a été trouvé dans l'ordre
-de composition non linéaire, la validation des entrées/sorties, la séparation
-pré/post-overrides, `minWidth`, l'overflow ou le rebuild de `MediaQuery`.
+## Verdict final
 
-Le lot n'est cependant pas acceptable en l'état pour trois raisons bloquantes :
+**ACCEPTÉ.**
 
-1. il change déjà l'unité et le comportement observable des groupes
-   hétérogènes, alors que cette sémantique appartient explicitement au lot 5 ;
-2. plusieurs tests P0 annoncés comme preuves de parité utilisent des fixtures
-   qui ne distinguent pas les branches qu'ils sont censés protéger ;
-3. le test permanent d'égalité du scaler candidat n'empêche pas de supprimer
-   candidat ou référence de l'égalité/hash, même si le code actuel est correct.
+Aucun finding ouvert. Les trois P1 de la première revue sont corrigés : la
+sémantique effective historique des groupes est restaurée, les quatre preuves
+métriques sont maintenant discriminantes et l'égalité/hash du scaler est
+protégée champ par champ sous un scaler à plateau.
 
-## Findings
+L'API publique, la composition non linéaire, les validations, les rebuilds,
+la configuration pré/post-overrides, la recherche et les limites des lots 4
+et 5 restent conformes à l'oracle. Les matrices proportionnées sont vertes sur
+Flutter 3.41.0 et 3.47.2. Le contrôle final ne trouve ni modification hors lot,
+ni shim de compatibilité, ni fichier temporaire résiduel.
 
-### P1 — Défaut produit — le lot 3 change prématurément la sémantique des groupes hétérogènes
+## Résolution des findings initiaux
 
-**Fichier :** `lib/src/auto_size_text.dart:278-287`
+### P1 produit — groupe hétérogène : résolu
 
-Le parent publiait au groupe la taille racine effective calculée. Le candidat
-publie désormais le candidat logique, puis chaque membre applique son propre
-scaler à la valeur commune. Ce n'est pas une simple adaptation interne : deux
-membres historiques utilisant respectivement `textScaleFactor: 1` avec le
-preset `[20]` et `textScaleFactor: 2` avec le preset `[15]` rendaient tous deux
-une taille effective de `20` sur le parent. Le même probe rend `15` et `30` sur
-`cac342c`.
+Le candidat initial publiait le candidat logique. Le probe historique rendait
+alors `[15, 30]` au lieu de `[20, 20]`. Le correctif transporte à nouveau la
+taille effective dans `_AutoSizeTextLayoutResult`, publie cette valeur au
+groupe, choisit le minimum effectif, puis :
 
-Le commentaire du code reconnaît que seuls les groupes homogènes sont
-préservés, et le test permanent de `test/text_scaler_test.dart:253-297` ne
-couvre que ce cas. Or l'oracle exclut la publication, la projection et la
-convergence de groupe du lot 3 ; le journal reporte lui-même les groupes
-hétérogènes au lot 5. Le lot 3 introduit donc une sémantique de lot 5 sans sa
-double borne, sans projection dans le domaine individuel et sans test de
-compatibilité historique.
+- pour le texte simple groupé, pose cette taille sur le style et utilise
+  `TextScaler.noScaling` ;
+- pour le texte riche groupé à référence positive, utilise le rapport linéaire
+  `tailleEffectiveDuGroupe / référence`, comme le parent historique.
 
-**Correction attendue :** conserver le comportement de groupe antérieur dans
-ce lot, ou déplacer atomiquement le changement d'unité et toutes ses
-conséquences dans le lot 5 avec son oracle et ses tests. Un smoke homogène ne
-peut pas justifier la régression hétérogène.
+Le test permanent hétérogène utilise les presets `[20]` et `[15]` avec les
+facteurs historiques 1 et 2, et exige dans l'ordre exact `[20, 20]`. Il est
+vert sur les deux SDK. Le code n'ajoute ni projection vers un domaine
+individuel, ni double borne, ni convergence, ni nouvelle unité de groupe. Les
+groupes hétérogènes modernes restent donc explicitement au lot 5. La branche
+riche de référence zéro demeure rejetée pendant la recherche et reste au lot
+4 ; la garde de rendu correspondante n'élargit pas le comportement atteignable.
 
-### P1 — Lacune de preuve — les fixtures bold, locale/direction et hauteur ne peuvent pas protéger la parité métrique
+### P1 preuve — gras, direction, locale et hauteur : résolu
 
-**Fichier :** `test/effective_text_configuration_test.dart:192-219` et
-`test/effective_text_configuration_test.dart:513-559`
+Les anciennes fixtures ne prouvaient qu'une propriété transmise au
+`RenderParagraph`. Les nouvelles fixtures commencent par mesurer deux témoins
+réels et vérifier leur divergence, construisent ensuite une contrainte entre
+les deux métriques, puis exigent des candidats différents :
 
-Le test de gras vérifie `w700`, puis compare le résultat à un témoin déjà gras.
-Il n'établit jamais que la branche sans `boldText` possède des métriques ou un
-candidat différents. Un probe temporaire reprenant exactement cette fixture a
-obtenu le candidat `28` avec et sans `boldText`. Le journal confirme à
-`maintenance/implementation/lot-3-effective-text.md:165-167` qu'aucune police
-de fixture ne garantit une largeur différente entre poids.
+| Branche | Précondition indépendante | Candidats protégés | Mutant rejoué |
+|---|---|---:|---|
+| `boldText` | Roboto regular et bold ont des largeurs distinctes | `30 / 29` | suppression du gras de mesure : `30` au lieu de `29` |
+| direction | `<<<<<<` a des largeurs et lignes distinctes en LTR/RTL | `30 / 29` | direction forcée LTR : `30` au lieu de `29` |
+| locale | U+066C a des glyphes `locl` distincts en `ar/fa` | `30 / 26` | locale héritée ignorée : `30` au lieu de `26` |
+| hauteur | `Hg`, `height: 3`, mesure `90 / 35` | `20 / 30` | comportement de hauteur ignoré : `20` au lieu de `30` |
 
-De même, le probe reprenant les fixtures permanentes a obtenu :
+Les quatre mutants isolés ont été rejoués par la revue sur 3.47.2. Chacun est
+rouge exactement sur l'assertion de candidat indiquée. Les mutations ont été
+retirées avant le rapport. Les tests vérifient aussi les métriques du
+`RenderParagraph` rendu ; le cas de hauteur compare notamment la baseline
+sèche. Le remplacement d'un poids existant `w900` par exactement `w700` reste
+couvert séparément.
 
-- locale/direction fallback et `rtl`/`th` : `Size(120.0, 20.0)` des deux côtés ;
-- `TextHeightBehavior` par défaut et `applyHeightToLastDescent: false` :
-  `Size(160.0, 20.0)` des deux côtés.
+### P1 preuve — égalité/hash : résolu
 
-Ces tests vérifient que les propriétés arrivent au `RenderParagraph`, mais ils
-ne peuvent pas échouer si le fitter mesure la mauvaise branche. L'oracle exige
-explicitement un témoin métriquement distinct avant de vérifier le candidat.
+Le scaler de fixture retourne toujours `42`, quels que soient l'entrée et son
+identité. Le test récupère les scalers du vrai `RenderParagraph` et construit :
 
-**Correction attendue :** ajouter des fontes regular/bold déterministes avec
-licence et un test qui prouve d'abord la différence, puis la réduction du
-candidat. Choisir également des fixtures direction/locale et
-`TextHeightBehavior` dont les témoins divergent réellement avant de comparer
-`AutoSizeText` au paragraphe rendu.
+- deux valeurs aux trois champs identiques, égales et de même hash ;
+- une source seule différente ;
+- un candidat seul différent ;
+- une référence seule différente.
 
-### P1 — Lacune de preuve — l'égalité/hash ne protège pas chacun des trois champs
+Les trois variations sont inégales et leurs hashes diffèrent du témoin, bien
+que les quatre appels `scale(20)` rendent tous `42`. La revue a retiré à tour
+de rôle source, candidat et référence de `operator ==`, puis de `hashCode`.
+Les six mutants ont échoué sur leur assertion dédiée. Le code final et l'arbre
+ont ensuite été restaurés à l'octet près avant la rédaction du rapport.
 
-**Fichier :** `test/text_scaler_test.dart:223-250`
-
-Le test permanent prouve seulement qu'un scaler reconstruit avec les mêmes
-valeurs est égal et possède le même hash. Une implémentation qui comparerait
-uniquement le scaler source passerait encore ce test. Il manque les trois
-inégalités isolées exigées par l'oracle : source différente, candidat différent
-et référence différente, y compris quand les sorties sont identiques sous un
-scaler à plateau.
-
-Le code de `lib/src/auto_size_text_layout.dart` combine bien les trois champs,
-et le probe temporaire plateau/rebuild est vert sur 3.41.0 et 3.47.2. Il s'agit
-donc d'une lacune de régression permanente, pas d'un défaut produit observé.
-
-**Correction attendue :** obtenir les scalers rendus de cas qui ne changent
-qu'un champ à la fois, vérifier leur inégalité, puis vérifier égalité et hash
-pour les trois champs identiques. Le cas plateau doit rester inclus pour éviter
-qu'une égalité de sortie masque un changement logique nécessitant un layout.
-
-## Audit de l'API et du scaler
+## API, scaler et compatibilité source/const
 
 - `TextScaler? textScaler` est présent sur les deux constructeurs, qui restent
-  `const`.
-- Le paramètre des deux constructeurs et le champ `textScaleFactor` restent
-  présents et portent `@Deprecated('Use textScaler instead.')`.
-- L'assertion d'exclusion mutuelle est const-compatible. La branche runtime
-  commune lève `ArgumentError`; son test par sous-classe contourne l'assertion
-  et démontre que la protection ne dépend pas des assertions release.
-- La priorité est exacte : scaler explicite, ancien facteur fini et positif ou
+  `const` et acceptent une invocation `const` moderne.
+- `double? textScaleFactor` est conservé sur les deux constructeurs et porte
+  `@Deprecated('Use textScaler instead.')` sur chaque paramètre et sur le
+  champ public.
+- L'assertion d'exclusion mutuelle reste const-compatible. La résolution
+  commune répète la protection avec `ArgumentError`, et le test runtime la
+  franchit par sous-classe afin de ne pas dépendre des assertions debug.
+- La priorité est exacte : scaler explicite, ancien facteur fini positif ou
   nul converti par `TextScaler.linear`, puis `MediaQuery.textScalerOf`.
-- Pour une référence positive, `_CandidateTextScaler.scale(s)` délègue à
-  `source.scale(s * candidate / reference)`. Aucun getter de compatibilité ne
-  décide d'une taille.
-- Taille logique, candidat, référence, produit ajusté et sortie sont contrôlés
-  comme finis et supérieurs ou égaux à zéro. Les exceptions du scaler source
-  ne sont pas interceptées.
-- Le zéro simple conserve sa frontière historique sans division ; la
-  généralisation RichText reste au lot 4.
-- L'égalité/hash du code inclut bien source, candidat et référence. La
-  configuration est reconstruite à chaque build ; les changements hérités
-  sont observés.
-- Aucun usage produit de `MediaQuery.textScaleFactorOf`, de
-  `TextPainter(textScaleFactor:)`, de `Text(textScaleFactor:)`, de `dynamic`,
-  `noSuchMethod`, `Function.apply` ou d'un shim d'ancienne API n'a été trouvé.
+- Pour une référence positive, la composition appelle exactement
+  `source.scale(fontSize * candidate / reference)`. Elle ne linéarise pas le
+  scaler source et ne consulte pas son getter de compatibilité pour décider
+  d'une taille.
+- Entrée, candidat, référence, produit ajusté et sortie sont validés finis et
+  supérieurs ou égaux à zéro. Les sorties négatives, infinies ou `NaN`, y
+  compris après overflow du produit, lèvent `ArgumentError`. Les exceptions du
+  scaler source restent propagées.
+- Le zéro simple conserve sa frontière historique ; les runs riches et leur
+  frontière complète restent au lot 4.
+- Source, candidat et référence sont tous présents dans l'égalité/hash. Le
+  snapshot et le scaler candidat sont reconstruits à chaque build, de sorte
+  qu'un changement du `MediaQuery` hérité provoque le nouveau layout attendu.
+- Aucun usage produit de `MediaQuery.textScaleFactorOf`, de l'ancien argument
+  de `TextPainter`/`Text`, de `dynamic`, `noSuchMethod`, `Function.apply` ou
+  d'un shim conditionnel n'a été trouvé. Les occurrences de
+  `textScaleFactor` restantes sont l'API publique historique et ses tests.
 
-## Audit de la configuration effective
+## Configuration effective et recherche
 
-Le snapshot privé sépare correctement :
+La configuration privée sépare correctement le style et le strut
+post-overrides destinés aux painters du style et du strut pré-overrides remis
+au `Text` final. Le scaler candidat explicite évite une seconde application
+des overrides par le rendu.
 
-- le style et le strut post-overrides destinés aux painters ;
-- le style et le strut pré-overrides destinés au `Text` final ;
-- le scaler candidat explicite, qui empêche une seconde lecture du scaler
-  ambiant.
+Les priorités de style, le remplacement du gras par `w700`, les trois
+overrides métriques, le strut, l'alignement, la direction, la locale, le wrap,
+l'overflow, `maxLines`, `TextWidthBasis` et `TextHeightBehavior` correspondent
+à l'oracle Flutter 3.41/3.47. Le painter reçoit `constraints.minWidth`. Son
+maximum est la contrainte en wrap/ellipsis et l'infini sinon. Le fit combine
+`didExceedMaxLines` et la comparaison entre `constraints.constrain(textSize)`
+et `textSize`.
 
-Les priorités de style, gras `w700`, trois overrides, strut, alignement,
-direction, locale, wrap, overflow, maxLines, `TextWidthBasis` et
-`TextHeightBehavior` correspondent à l'oracle. Le painter reçoit
-`constraints.minWidth`; son maximum vaut la contrainte pour wrap/ellipsis et
-l'infini sinon. Le fit compare `constraints.constrain(textSize)` à `textSize`
-et conserve `didExceedMaxLines`.
+Le delta correctif ne change ni le domaine ni l'algorithme de recherche, sauf
+le transport de la taille effective déjà calculée vers le groupe. Il n'ajoute
+aucun run riche fidèle, NBSP/NNBSP, placeholder, intrinsic, dry layout public,
+projection de groupe ou convergence. Il n'anticipe donc ni le lot 4 ni le lot
+5.
 
-Les probes temporaires suivants passent sur 3.41.0 et 3.47.2 : composition
-quadratique racine/strut sans lecture du getter, scaler à plateau et rebuild,
-produit extrême devenant infini rejeté avant délégation, les quatre valeurs de
-`TextOverflow` héritées sous `softWrap: false`, contrainte tight avec
-`minWidth`, et frontière de référence zéro simple. Tous les fichiers de probe
-ont été supprimés avant le rapport.
+## Fixtures, licences et minimalité
 
-## Preuves rouges et matrice verte
+Les trois TTF sont des sous-ensembles privés de test chargés avec
+`FontLoader`; ils ne sont déclarés dans aucun manifeste d'assets et n'entrent
+pas dans le bundle client. Le total fontes et licences est de 26 212 octets.
 
-### Parent exact `a13534c`
+| Fixture | Taille | Unicode / glyphes | SHA-256 |
+|---|---:|---:|---|
+| Roboto regular | 2 660 | 7 / 8 | `893780a2a9c1b15a9ee784b1e34568ff755d3ff9815c9fa755febe303d7bd9c1` |
+| Roboto bold | 2 632 | 7 / 8 | `bab0b1b36298647122dfaee2e27c0bcb564c43f954be771e90abc94812fafa6d` |
+| Noto Naskh Arabic `locl` | 5 212 | 3 / 8 | `d51e94755847f96a7cb9fdd53c91962ec6772a4d6b54c764e05b85e8d987af5a` |
 
-Une archive temporaire du parent a reçu uniquement les deux suites finales :
+Les fontes sources sont identiques entre les SDK 3.41.0 et 3.47.2 : Roboto
+regular `79e851...`, Roboto bold `7d0b99...` et Noto Naskh `6b9996...`.
+`hb-info`, `fc-query` et `hb-shape` confirment les poids `w400/w700`, les
+avances directionnelles distinctes et la substitution `locl` de U+066C
+(`329` en arabe, `455` en farsi). Les sous-ensembles ont donc conservé les
+seules tables et glyphes requis par les preuves.
 
-- `text_scaler_test.dart` ne compile pas, avec « No named parameter with the
-  name `textScaler` » sur les deux constructeurs ;
-- `effective_text_configuration_test.dart` produit 4 passages et 3 échecs :
-  override isolé attendu `23` mais obtenu `30`, strut/override affichant encore
-  le replacement, et `softWrap: false` hérité n'affichant pas le replacement.
+`LICENSE-Roboto.txt` est identique octet pour octet à la licence Apache-2.0
+des artefacts des deux SDK (`cfc7749...`). La licence OFL-1.1 complète de Noto,
+avec le copyright Google 2014, est adjacente (`e272933...`). Aucun fichier de
+licence, hash ou binaire annoncé ne manque.
 
-Les rouges correspondent donc aux causes du lot.
+## Preuves rouges et capacité d'échouer
 
-### Flutter 3.47.2 / Dart 3.13.2
+La première revue avait reproduit sur le parent exact :
 
-- format autoritatif `lib test example` : 24 fichiers, 0 changement ;
-- analyse scoped fatale : aucun diagnostic ;
-- suites lot 3 : 16/16 ;
-- suite complète : 72/72 ;
-- leak/cycle de vie explicite : 9/9 ;
-- exemple : `pub get --enforce-lockfile` puis analyse fatale, succès.
+- l'absence de l'argument `textScaler` sur les deux constructeurs, donc une
+  erreur de compilation de la suite scaler ;
+- quatre passages et trois échecs de configuration sur les overrides isolés,
+  le strut et le wrap ;
+- `[20, 20]` sur le parent contre `[15, 30]` sur le candidat initial pour le
+  groupe hétérogène.
 
-### Flutter 3.41.0 / Dart 3.11.0
+Le correctif ajoute le rouge permanent exact `[20, 20]`, les quatre témoins
+métriques discriminants et les variations plateau. Les dix mutants de la
+relecture corrective (quatre métriques, trois égalités, trois hashes) prouvent
+que ces assertions échouent si leur cause produit disparaît.
 
-Depuis une archive propre du commit candidat :
+Les fichiers de test modifiés ou ajoutés possèdent un `group()` et chaque cas
+`test`/`testWidgets` commence par « should ». Les helpers ne cachent pas les
+attentes produit : les préconditions sont calculées par des painters témoins,
+et les candidats/rendus sont vérifiés séparément.
 
-- résolution naturelle : 26 dépendances ;
-- analyse scoped fatale : aucun diagnostic ;
-- suites lot 3 : 16/16 ;
-- suite complète : 72/72 ;
-- leak/cycle de vie explicite : 9/9 ;
-- exemple résolu sans lock forcé : `meta 1.17.0`,
-  `vector_math 2.2.0`, analyse fatale verte ;
-- `pub downgrade` : 9 dépendances abaissées, puis 72/72 avec `--no-pub`.
+## Matrice indépendante rejouée
 
-Le formatter 3.41.0 voudrait reformater deux fichiers hérités et non modifiés
-par ce lot (`leak_tracking_test.dart` et
-`text_painter_lifecycle_test.dart`). Ce n'est pas un gate du lot : la roadmap
-impose un format unique produit par 3.47.2, puis compilation/analyse/tests sur
-le minimum. L'arbre de revue est resté propre.
+Toolchains exactes :
 
-## Validité des tests et périmètre
+```text
+Flutter 3.41.0 • revision 44a626f4f0 • Dart 3.11.0
+Flutter 3.47.2 • revision d3b14c8769 • Dart 3.13.2
+```
 
-Les trois fichiers de test modifiés ou ajoutés possèdent un `group()` et tous
-leurs cas commencent par « should ». Les rouges du parent démontrent la
-capacité d'échouer des overrides, du strut, du wrap et de l'API moderne. Les
-findings ci-dessus recensent les témoins qui restent tautologiques ou
-insuffisamment discriminants.
+| Gate | Flutter 3.41.0 | Flutter 3.47.2 |
+|---|---:|---:|
+| suites lot 3 | 21/21 | 21/21 |
+| suite racine complète | 77/77 | 77/77 |
+| leak/cycle de vie explicite | 9/9 | 9/9 |
+| analyse scoped `--fatal-infos --fatal-warnings` | 0 diagnostic | 0 diagnostic |
 
-Les modifications RichText restent limitées au passage par l'API moderne et
-ne définissent ni runs fidèles, ni NBSP/NNBSP, ni référence zéro riche. Aucun
-`WidgetSpan`, placeholder, intrinsic, dry layout ou nouveau paramètre public
-de paragraphe n'est ajouté. En revanche, le changement d'unité de groupe est
-une sémantique observable du lot 5 et doit être retiré de ce lot.
+Contrôles supplémentaires :
 
-## Revue complète selon `find-bugs`
+- format autoritatif Dart 3.13.2, `lib test example` : 24 fichiers, zéro
+  changement ;
+- exemple 3.47.2 : `pub get --enforce-lockfile`, puis analyse fatale, succès ;
+- `pub downgrade` depuis l'état résolu haut a abaissé 13 dépendances, dont les
+  quatre contraintes propres au SDK ; la suite avec `--no-pub` reste 77/77 ;
+- le contrôle non mutating du formatter 3.11.0 ne diverge que sur les deux
+  fichiers hérités déjà documentés des lots antérieurs,
+  `leak_tracking_test.dart` et `text_painter_lifecycle_test.dart`. Aucun fichier
+  du correctif lot 3 n'est concerné, et la roadmap impose le format unique
+  autoritatif 3.47.2.
 
-Fichiers du diff lus intégralement :
+La résolution haute a ensuite restauré les locks suivis ; l'arbre était propre
+avant la seule modification de ce rapport.
+
+## Périmètre et revue `find-bugs`
+
+Delta correctif lu intégralement :
 
 - `lib/src/auto_size_text.dart` ;
 - `lib/src/auto_size_text_layout.dart` ;
 - `maintenance/implementation/lot-3-effective-text.md` ;
-- `test/basic_test.dart` ;
+- les deux licences et les trois TTF sous `test/assets/fonts/` ;
 - `test/effective_text_configuration_test.dart` ;
-- `test/text_scaler_test.dart` ;
-- `test/utils.dart`.
+- `test/text_scaler_test.dart`.
 
-Entrées et état attaquables : paramètres publics des deux constructeurs,
-styles/spans/strut, scalers personnalisés, `MediaQuery`/`DefaultTextStyle`,
-contraintes de layout, domaine de candidats et état partagé de groupe. Il n'y
-a aucune requête de base, authentification, autorisation, session, primitive
-cryptographique ni appel réseau dans le diff.
+Le diff cumulatif relit aussi intégralement `test/basic_test.dart` et
+`test/utils.dart`. Le delta correctif est limité aux deux fichiers produit, aux
+preuves/journal et aux fixtures/licences. Le cumul n'ajoute rien à l'exemple,
+au manifeste, aux locks, à la CI, à la documentation publique ou à la version.
 
 | Checklist | Conclusion |
 |---|---|
-| Injection, XSS, SQL, auth, autorisation, CSRF, session | Hors surface : widget local sans serveur, template ou identité. |
-| Cryptographie, secrets, divulgation | Hors surface ; aucun secret, log sensible ou primitive ajouté. |
-| Race / TOCTOU / état | Rebuilds et égalité du scaler audités ; changement prématuré de l'état de groupe signalé en P1. |
-| Disponibilité / ressources | Painters sous `finally`, suites leak 9/9 sur deux SDK ; extrêmes non finis rejetés. |
-| Déni de service | Recherche toujours logarithmique ; aucun domaine matérialisé par ce lot. |
-| Logique numérique | Ordre non linéaire, plateau, zéro, infinies/NaN/négatives, overflow du produit et égalité/hash audités. |
-| Compatibilité API | API historique conservée/dépréciée ; constructeurs const et priorité conformes ; régression de groupe signalée. |
+| Injection, XSS, SQL, auth, session, CSRF | Hors surface : widget local sans serveur, template ou identité. |
+| Secrets, cryptographie, divulgation | Aucun secret, log sensible, réseau ou primitive ajouté. |
+| Race, état, TOCTOU | Rebuild `MediaQuery`, égalité du scaler et état de groupe exercés ; aucun défaut observé. |
+| Ressources, disponibilité | Painters libérés sous `finally`, leak 9/9 sur deux SDK, extrêmes rejetés. |
+| Déni de service | Recherche toujours logarithmique ; aucun domaine proportionnel à l'amplitude n'est matérialisé. |
+| Logique numérique | Non-linéaire, plateau, zéro, négatifs, `NaN`, infinis, overflow et hash audités. |
+| Compatibilité API | Ancienne API conservée/dépréciée, nouvelle API const, priorité et runtime conformes. |
+| Frontière de lots | Aucun run riche complet, intrinsic, projection ou convergence ajouté. |
 
-Limites : aucun appareil physique/web ni exécution AOT release n'a été lancé.
-La branche runtime d'exclusion mutuelle est néanmoins exercée directement en
-contournant l'assertion du constructeur. Les métriques réelles de fontes et de
-locale restent précisément la lacune de preuve P1, pas un fait supposé.
+Limites : pas d'appareil physique/web ni d'exécution AOT release. La branche
+runtime d'exclusion mutuelle est néanmoins exercée sans assertion, les
+toolchains minimum et haute couvrent compilation/analyse/layout, et les
+métriques sensibles reposent sur des fixtures versionnées plutôt que sur les
+fontes de la machine.
