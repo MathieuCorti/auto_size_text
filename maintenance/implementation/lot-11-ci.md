@@ -6,8 +6,8 @@ Branche : `codex/impl-ci`
 
 Base exacte : `baa9c89fc03e74309487907589c6eeadfe6f9697`
 
-Workflow initial : `a8b9756` ; journal initial : `58423b6` ; le commit courant
-ferme la revue CI finale.
+Workflow initial : `a8b9756` ; journal initial : `58423b6` ; correctif des
+gates complètes : `9e799ce` ; le commit courant ferme la revue des pipelines.
 
 ## Périmètre livré
 
@@ -15,6 +15,12 @@ Le workflow historique a été remplacé par un unique job matriciel lisible,
 sans script auxiliaire. Il s'exécute sur `push`, `pull_request` et à la demande,
 avec permissions globales `contents: read`, annulation des exécutions obsolètes,
 échec rapide désactivé entre gates et délai maximal de 45 minutes par gate.
+
+Le shell `bash` est déclaré explicitement dans `defaults.run`. La
+[syntaxe officielle GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_iddefaultsrunshell)
+lance ainsi chaque bloc avec `-e -o pipefail`, y compris les pipelines dartdoc
+et publication à blanc utilisant `tee` ; un échec amont ne peut pas être
+converti en succès par la capture du log.
 
 La matrice contient cinq entrées :
 
@@ -103,6 +109,12 @@ example/pubspec.lock SHA-1 6ce414e74d7d5b4d7143e1a3cfaa1528127994d9
 demo/pubspec.lock    SHA-1 54cae0e3100845d1095cc8dc9a76afaf8d2f0936
 ```
 
+Un probe négatif remplace la commande amont de chacun des deux pipelines par un
+faux outil qui imprime les marqueurs attendus puis retourne 17. Chaque pipeline
+retourne 17 sous `bash -eo pipefail`, avant son assertion aval. Les deux
+commandes réelles restent vertes : dartdoc 0 warning/0 erreur et dry-run Pub
+0 warning avec toutes les assertions d'archive.
+
 ## Bornes et limites transmises
 
 - aucun fichier `lib/**` ou `test/**` n'est modifié ;
@@ -118,4 +130,5 @@ demo/pubspec.lock    SHA-1 54cae0e3100845d1095cc8dc9a76afaf8d2f0936
 
 - `a8b9756` — `ci: add pinned Flutter validation matrix` ;
 - `58423b6` — `docs: record lot 11 CI validation` ;
-- commit courant — fermeture de la revue CI finale.
+- `9e799ce` — `ci: complete downgrade and package gates` ;
+- commit courant — fermeture de la revue des pipelines.
