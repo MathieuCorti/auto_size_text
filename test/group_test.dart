@@ -61,56 +61,60 @@ void _expectFontSizes(WidgetTester tester, double fontSize) {
 }
 
 void main() {
-  testWidgets('Group sync', (tester) async {
-    await tester.pumpWidget(const GroupTest());
+  group('AutoSizeGroup', () {
+    testWidgets('should synchronize font sizes after state updates', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const GroupTest());
 
-    _expectFontSizes(tester, 50);
+      _expectFontSizes(tester, 50);
 
-    final state = tester.state(find.byType(GroupTest)) as GroupTestState;
+      final state = tester.state(find.byType(GroupTest)) as GroupTestState;
 
-    state.width1 = 200;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 33);
+      state.width1 = 200;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 33);
 
-    state.width2 = 150;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 25);
+      state.width2 = 150;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 25);
 
-    state.width2 = 100;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 16);
+      state.width2 = 100;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 16);
 
-    state.width1 = 60;
-    state.width2 = 60;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 10);
+      state.width1 = 60;
+      state.width2 = 60;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 10);
 
-    state.width1 = 200;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 10);
+      state.width1 = 200;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 10);
 
-    state.width2 = 250;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 33);
+      state.width2 = 250;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 33);
 
-    state.width1 = 250;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 41);
+      state.width1 = 250;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 41);
 
-    state.width1 = 300;
-    state.width2 = 300;
-    state.refresh();
-    await tester.pump(Duration.zero);
-    await tester.pump(Duration.zero);
-    _expectFontSizes(tester, 50);
+      state.width1 = 300;
+      state.width2 = 300;
+      state.refresh();
+      await tester.pump(Duration.zero);
+      await tester.pump(Duration.zero);
+      _expectFontSizes(tester, 50);
 
-    await tester.pump(Duration.zero);
+      await tester.pump(Duration.zero);
+    });
   });
 }

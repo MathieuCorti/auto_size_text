@@ -21,8 +21,8 @@ Tête : commit contenant ce journal ; SHA final communiqué dans le compte rendu
 - harness opt-in de leak tracking via `FlutterMemoryAllocations`, avec
   `leak_tracker_flutter_testing: ^3.0.10` directement déclaré ;
 - test de capacité permanent des trois overrides de métriques `MediaQuery` ;
-- corrections de lints et formatage mécaniques, sans changement d'attente ou
-  de comportement produit.
+- corrections de lints, formatage et convention de nommage/organisation des
+  tests mécaniques, sans changement d'attente ou de comportement produit.
 
 Hors périmètre : `demo/**`, CI, `.pubignore`, README, changelog, version,
 nouvelle API et correctifs produit.
@@ -34,7 +34,8 @@ nouvelle API et correctifs produit.
 - capacité et harness : `test/flutter_test_config.dart`,
   `test/leak_tracking.dart`, `test/leak_tracking_test.dart`,
   `test/sdk_floor_api_test.dart` ;
-- lints/format uniquement : `example/main.dart`, `lib/auto_size_text.dart`,
+- lints/format et convention de tests uniquement : `example/main.dart`,
+  `lib/auto_size_text.dart`,
   `lib/src/auto_size_group.dart`, `lib/src/auto_size_group_builder.dart`,
   `lib/src/auto_size_text.dart`, `test/basic_test.dart`,
   `test/group_builder_test.dart`, `test/group_test.dart`,
@@ -161,6 +162,44 @@ exactement les 9 informations allowlistées, l'analyse de l'exemple a été vert
 la suite a passé 25/25, puis le downgrade et le replay `--no-pub` ont également
 passé 25/25. Le worktree canonique n'a pas été modifié par cette résolution
 minimum.
+
+## Correction T2/C7 après revue indépendante
+
+La revue indépendante au commit
+`badb159587677441a0d102350432dc679078330b` a demandé une seule correction :
+appliquer aux six suites historiques déjà touchées par le lot la convention
+commune d'organisation et de nommage des tests. La correction :
+
+- ajoute un `group()` nommé `AutoSizeText`, `AutoSizeGroup` ou
+  `AutoSizeGroupBuilder` dans `test/basic_test.dart`,
+  `test/group_builder_test.dart`, `test/group_test.dart`,
+  `test/min_max_font_size_test.dart`,
+  `test/overflow_replacement_test.dart` et
+  `test/preset_font_sizes_test.dart` ;
+- renomme les 16 descriptions de ces suites afin qu'elles commencent toutes
+  par `should` ;
+- ne modifie aucun widget construit, helper, appel, ordre d'exécution ou
+  attente. `test/utils.dart` reste un helper et n'est pas une suite.
+
+La matrice ciblée a été rejouée après cette correction :
+
+| Environnement / commande | Résultat |
+|---|---|
+| 3.47.2 — `dart format --output=none --set-exit-if-changed lib test example` | Succès : 20 fichiers, 0 changement. |
+| 3.47.2 — exemple `flutter pub get --enforce-lockfile` | Succès ; lock canonique inchangé. |
+| 3.47.2 — `flutter analyze --no-pub lib test example/main.dart` | Code 1 attendu ; exactement les 9 informations allowlistées, 0 warning, 0 erreur. |
+| 3.47.2 — exemple `flutter analyze --no-pub` | Succès, aucun diagnostic. |
+| 3.47.2 — `flutter test --no-pub --reporter compact` | Succès, 25/25 tests. |
+| 3.41.0 — résolution naturelle racine et exemple dans une nouvelle copie sans locks | Succès ; 26 dépendances racine et 10 dépendances exemple. |
+| 3.41.0 — `flutter analyze --no-pub lib test example/main.dart` | Code 1 attendu ; exactement les mêmes 9 informations allowlistées, 0 warning, 0 erreur. |
+| 3.41.0 — exemple `flutter analyze --no-pub` | Succès, aucun diagnostic. |
+| 3.41.0 — `flutter test --no-pub --reporter compact` | Succès, 25/25 tests. |
+
+La copie minimum de ce replay est
+`/private/tmp/auto-size-text-lot0-review-min.1WqISU/repo`. Les hashes des six
+fichiers de suite ont été comparés au worktree canonique avant résolution et
+sont identiques. Aucun manifeste, contrainte ou lock n'ayant changé, le
+downgrade minimum déjà validé n'a pas été rejoué.
 
 ## Limites
 
