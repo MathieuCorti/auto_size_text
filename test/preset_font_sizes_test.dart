@@ -179,5 +179,45 @@ void main() {
         await _expectArgumentError(tester, presets);
       }
     });
+
+    testWidgets('should preserve disjoint preset domains inside a group', (
+      tester,
+    ) async {
+      final group = AutoSizeGroup();
+      const firstKey = ValueKey<String>('preset-group-first');
+      const secondKey = ValueKey<String>('preset-group-second');
+      final firstPresets = <double>[40, 20, 10];
+      final secondPresets = <double>[30, 10];
+
+      await pump(
+        tester: tester,
+        widget: Column(
+          children: <Widget>[
+            AutoSizeText(
+              '',
+              textKey: firstKey,
+              style: const TextStyle(fontSize: 40),
+              presetFontSizes: firstPresets,
+              textScaler: TextScaler.noScaling,
+              group: group,
+            ),
+            AutoSizeText(
+              '',
+              textKey: secondKey,
+              style: const TextStyle(fontSize: 30),
+              presetFontSizes: secondPresets,
+              textScaler: TextScaler.noScaling,
+              group: group,
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      expect(effectiveFontSize(tester.widget(find.byKey(firstKey))), 20);
+      expect(effectiveFontSize(tester.widget(find.byKey(secondKey))), 30);
+      expect(firstPresets, orderedEquals(<double>[40, 20, 10]));
+      expect(secondPresets, orderedEquals(<double>[30, 10]));
+    });
   });
 }

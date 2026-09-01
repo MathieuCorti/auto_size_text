@@ -87,5 +87,63 @@ void main() {
 
       _expectFontSizes(tester, 50);
     });
+
+    testWidgets('should preserve its group identity across state rebuilds', (
+      tester,
+    ) async {
+      final observedGroups = <AutoSizeGroup>[];
+      var width = 100.0;
+      late StateSetter update;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return AutoSizeGroupBuilder(
+                builder: (context, group) {
+                  observedGroups.add(group);
+                  return Column(
+                    children: <Widget>[
+                      SizedBox(
+                        width: width,
+                        child: AutoSizeText(
+                          'XXXXXX',
+                          style: const TextStyle(fontSize: 60),
+                          minFontSize: 1,
+                          maxLines: 1,
+                          group: group,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 300,
+                        child: AutoSizeText(
+                          'XXXXXX',
+                          style: const TextStyle(fontSize: 60),
+                          minFontSize: 1,
+                          maxLines: 1,
+                          group: group,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      _expectFontSizes(tester, 16);
+
+      update(() => width = 300);
+      await tester.pump();
+      await tester.pump();
+      _expectFontSizes(tester, 50);
+
+      expect(observedGroups, hasLength(greaterThanOrEqualTo(2)));
+      expect(observedGroups, everyElement(same(observedGroups.first)));
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
   });
 }

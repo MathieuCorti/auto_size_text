@@ -238,6 +238,8 @@ class AutoSizeText extends StatefulWidget {
 }
 
 class _AutoSizeTextState extends State<AutoSizeText> {
+  double? _publishedEffectiveFontSize;
+
   @override
   void initState() {
     super.initState();
@@ -249,9 +251,10 @@ class _AutoSizeTextState extends State<AutoSizeText> {
   void didUpdateWidget(AutoSizeText oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.group != widget.group) {
+    if (!identical(oldWidget.group, widget.group)) {
       oldWidget.group?._remove(this);
       widget.group?._register(this);
+      _publishedEffectiveFontSize = null;
     }
   }
 
@@ -275,19 +278,21 @@ class _AutoSizeTextState extends State<AutoSizeText> {
           candidates,
         );
 
-        double? groupFontSize;
-
-        if (widget.group != null) {
-          // Groups keep publishing effective sizes until the dedicated group
-          // lot defines projection between heterogeneous logical domains.
-          widget.group!._updateFontSize(this, result.effectiveFontSize);
-          groupFontSize = widget.group!._fontSize;
+        var renderCandidate = result.candidate;
+        final group = widget.group;
+        if (group != null) {
+          if (_publishedEffectiveFontSize != result.effectiveFontSize) {
+            group._updateFontSize(this, result.effectiveFontSize);
+            _publishedEffectiveFontSize = result.effectiveFontSize;
+          }
+          renderCandidate = _projectGroupFontSize(
+            candidates,
+            result.candidate,
+            configuration.userScaler,
+            group._fontSize,
+          );
         }
-        final text = _buildText(
-          result.candidate,
-          configuration,
-          groupFontSize: groupFontSize,
-        );
+        final text = _buildText(renderCandidate, configuration);
 
         if (widget.overflowReplacement != null && !result.fits) {
           return widget.overflowReplacement!;
@@ -503,14 +508,36 @@ class _AutoSizeTextState extends State<AutoSizeText> {
       );
     });
 
-    final effectiveFontSize = configuration.userScaler.scale(result.value);
-    _requireFiniteNonNegative(effectiveFontSize, 'calculatedFontSize');
+    final effectiveFontSize = _checkedEffectiveFontSize(
+      configuration.userScaler,
+      result.value,
+      name: 'calculatedFontSize',
+    );
 
     return _AutoSizeTextLayoutResult(
       candidate: result.value,
-      effectiveFontSize: _canonicalCandidateZero(effectiveFontSize),
+      effectiveFontSize: effectiveFontSize,
       fits: result.fits,
     );
+  }
+
+  double _projectGroupFontSize(
+    _CandidateSet candidates,
+    double localCandidate,
+    TextScaler userScaler,
+    double groupLimit,
+  ) {
+    return candidates.findLargestThatFits((candidate) {
+      if (candidate > localCandidate) {
+        return false;
+      }
+      final effectiveFontSize = _checkedEffectiveFontSize(
+        userScaler,
+        candidate,
+        name: 'projectedFontSize',
+      );
+      return effectiveFontSize <= groupLimit;
+    }).value;
   }
 
   bool _checkTextFits(
@@ -589,23 +616,16 @@ class _AutoSizeTextState extends State<AutoSizeText> {
 
   Widget _buildText(
     double candidate,
-    _EffectiveTextConfiguration configuration, {
-    double? groupFontSize,
-  }) {
+    _EffectiveTextConfiguration configuration,
+  ) {
     final referenceFontSize = configuration.referenceFontSize;
     if (widget.data != null) {
-      final renderStyle = groupFontSize != null
-          ? (configuration.renderStyle ?? const TextStyle()).copyWith(
-              fontSize: groupFontSize,
-            )
-          : referenceFontSize == 0
+      final renderStyle = referenceFontSize == 0
           ? (configuration.renderStyle ?? const TextStyle()).copyWith(
               fontSize: candidate,
             )
           : configuration.renderStyle;
-      final candidateScaler = groupFontSize != null
-          ? TextScaler.noScaling
-          : referenceFontSize == 0
+      final candidateScaler = referenceFontSize == 0
           ? configuration.userScaler
           : _CandidateTextScaler(
               source: configuration.userScaler,
@@ -629,16 +649,12 @@ class _AutoSizeTextState extends State<AutoSizeText> {
         textHeightBehavior: configuration.textHeightBehavior,
       );
     } else {
-      final renderStyle = groupFontSize == null && referenceFontSize == 0
+      final renderStyle = referenceFontSize == 0
           ? (configuration.renderStyle ?? const TextStyle()).copyWith(
               fontSize: candidate,
             )
           : configuration.renderStyle;
-      final candidateScaler = groupFontSize != null
-          ? referenceFontSize == 0
-                ? TextScaler.noScaling
-                : TextScaler.linear(groupFontSize / referenceFontSize)
-          : referenceFontSize == 0
+      final candidateScaler = referenceFontSize == 0
           ? configuration.userScaler
           : _CandidateTextScaler(
               source: configuration.userScaler,
