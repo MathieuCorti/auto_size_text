@@ -14,7 +14,7 @@
     ".gtm/quality.json": "e112b72c892ab6a09b76dee7945145778352d024587b94b5ea775111045c9ae1",
     "AGENTS.md": "a04596639ecf4acfa5178de00de3fcf546f817382ee3563f20c3d772b352814e",
     "CLAUDE.md": "8b217eda5f479911c9aff80f8648c6152776ccb2fef58bee25756ab8a45157e2",
-    "tool/quality_check.py": "b95edef5051dabe35ea96bd0e419d67c1c4d2e77df5a0dc0f8ab7527565cbebb",
+    "tool/quality_check.py": "fc2454ea1b8945d91efdc8afb215cfba908a09c930faf74bd468e61ba250a021",
     "tool/validate.sh": "2dc7af5bc87a3d735a5928cc16c877a70bf72c5244c929f40fb3d7936b1f261c",
     ".agents/skills/flutter-project/SKILL.md": "a9b098c692c770c0996f03c8d6416bfb35718bc89bb13c6029c3ba1db9b18d6d",
     ".agents/skills/flutter-project/references/architecture.md": "06de4d80422b9d87a7853321a2b8ebccab885378f40811dba8c3b71cc228e6b7",

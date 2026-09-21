@@ -24,8 +24,14 @@ def read_config(root):
     if config.get('profile') not in profiles:
         raise ValueError('quality.json profile is not supported')
     roots = config.get('packageRoots')
-    if not isinstance(roots, list) or not roots:
-        raise ValueError('quality.json needs non-empty packageRoots')
+    if not isinstance(roots, list) or (not roots and not config.get('foundationOnly')):
+        raise ValueError('quality.json needs packageRoots (or an explicit foundationOnly placeholder)')
+    if config.get('foundationOnly'):
+        if roots:
+            raise ValueError('foundationOnly requires empty packageRoots')
+        if any(p.endswith('pubspec.yaml') or p.startswith('lib/') and p.endswith('.dart')
+               for p in tracked_and_new_files(root)):
+            raise ValueError('This foundation-only branch now contains code: register packageRoots and remove foundationOnly before validation')
     for package in roots:
         local = (root / package).resolve()
         if not local.is_relative_to(root.resolve()):
@@ -129,12 +135,12 @@ def import_violations(local_file, uri, package_name, composition):
     ui = '/presentation/' in local_file or re.search(r'/(?:pages|widgets|views)/', local_file)
     domain = '/domain/' in local_file
     data = '/data/' in local_file
-    workflow = bool(re.search(r'/(?:cubit|bloc|controllers?|notifiers?)/', local_file)
+    workflow = bool(re.search(r'/(?:application|cubit|bloc|controllers?|notifiers?)/', local_file)
                     or re.search(r'_(?:cubit|bloc|controller|notifier)\.dart$', local_file))
     external_io = re.match(r'(?:dart:(?:io|ffi)|package:(?:dio|http|cloud_firestore|'
                            r'firebase_database|shared_preferences|sqflite|'
                            r'flutter_secure_storage|supabase_flutter)/)', uri)
-    ui_target = '/presentation/' in target or re.search(r'/(?:widgets|pages|views)/', target)
+    ui_target = '/presentation/' in target or re.search(r'/(?:design_system|widgets|pages|views)/', target)
     platform_services = uri == 'package:flutter/services.dart'
     flutter_ui = uri.startswith('package:flutter/') and uri not in (
         'package:flutter/foundation.dart', 'package:flutter/services.dart')
@@ -144,7 +150,7 @@ def import_violations(local_file, uri, package_name, composition):
         found.append(('data-no-presentation', 'move UI formatting/composition to its UI or shared logic responsibility'))
     if ui and external_io:
         found.append(('ui-no-direct-io', 'use the existing repository/adapter instead of direct network or storage access'))
-    if workflow and (flutter_ui or re.search(r'/(?:widgets|pages|views)/', target)):
+    if workflow and (flutter_ui or re.search(r'/(?:design_system|widgets|pages|views)/', target)):
         found.append(('workflow-no-widgets', 'keep application state independent of widgets; compose them in the page'))
     if local_file.startswith(('lib/core/', 'lib/shared/')) and target.startswith('lib/features/'):
         found.append(('shared-no-feature', 'move feature composition to an explicit composition root'))
