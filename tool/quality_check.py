@@ -96,6 +96,18 @@ def tracked_and_new_files(root):
             if p.is_file() and not ignored.intersection(p.relative_to(root).parts)]
 
 
+def validate_project_skills(root):
+    directory = root / '.agents/skills'
+    for parent in (root / '.agents', directory):
+        if parent.is_symlink():
+            return [str(parent) + ': project skills must use real local directories']
+    errors = validate_skills(directory)
+    primary = directory / 'flutter-project/SKILL.md'
+    if not primary.is_file():
+        errors.append(str(primary) + ': missing primary project skill')
+    return errors
+
+
 def check_no_visual_baselines(root, files):
     errors = []
     assertion = re.compile(r'\b(?:matchesGoldenFile|screenMatchesGolden|multiScreenGolden|'
@@ -104,14 +116,25 @@ def check_no_visual_baselines(root, files):
         path = root / name
         if not path.is_file():
             continue
-        if path.suffix.lower() in ('.png', '.jpg', '.webp') and re.search(
+        if path.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp') and re.search(
                 r'(?:^|/)(?:goldens?|baselines?|snapshots?)(?:/|\.)', name, re.I):
             errors.append(name + ': stored visual comparison baseline is prohibited')
         if name.endswith('.dart') and ('test/' in name or 'integration_test/' in name):
-            for line, text in enumerate(path.read_text().splitlines(), 1):
-                if assertion.search(text):
-                    errors.append(f'{name}:{line}: remove image comparison; keep behavioral assertions')
+            content = path.read_text()
+            for match in assertion.finditer(content):
+                line = content.count('\n', 0, match.start()) + 1
+                errors.append(f'{name}:{line}: remove image comparison; keep behavioral assertions')
     return errors
+
+
+def is_ui_file(path):
+    if re.search(r'/(?:ui|design_system|widgets|pages|views)/', path):
+        return True
+    # Flat feature files need no UI folder. Explicit logic/model ownership wins
+    # over a suffix, e.g. the pure domain enum analytics_screen.dart.
+    if re.search(r'/(?:domain|data|models?|application|cubit|bloc|controllers?|notifiers?)/', path):
+        return False
+    return bool(re.search(r'(?:^|/)(?:[^/]+_)?(?:page|screen|view|widget)\.dart$', path))
 
 
 def import_violations(local_file, uri, package_name, composition):
@@ -132,7 +155,7 @@ def import_violations(local_file, uri, package_name, composition):
                 parts.append(part)
         target = '/'.join(parts)
     found = []
-    ui = '/presentation/' in local_file or re.search(r'/(?:pages|widgets|views)/', local_file)
+    ui = '/presentation/' in local_file or is_ui_file(local_file)
     domain = '/domain/' in local_file
     data = '/data/' in local_file
     workflow = bool(re.search(r'/(?:application|cubit|bloc|controllers?|notifiers?)/', local_file)
@@ -140,7 +163,7 @@ def import_violations(local_file, uri, package_name, composition):
     external_io = re.match(r'(?:dart:(?:io|ffi)|package:(?:dio|http|cloud_firestore|'
                            r'firebase_database|shared_preferences|sqflite|'
                            r'flutter_secure_storage|supabase_flutter)/)', uri)
-    ui_target = '/presentation/' in target or re.search(r'/(?:design_system|widgets|pages|views)/', target)
+    ui_target = '/presentation/' in target or is_ui_file(target)
     platform_services = uri == 'package:flutter/services.dart'
     flutter_ui = uri.startswith('package:flutter/') and uri not in (
         'package:flutter/foundation.dart', 'package:flutter/services.dart')
@@ -150,7 +173,7 @@ def import_violations(local_file, uri, package_name, composition):
         found.append(('data-no-presentation', 'move UI formatting/composition to its UI or shared logic responsibility'))
     if ui and external_io:
         found.append(('ui-no-direct-io', 'use the existing repository/adapter instead of direct network or storage access'))
-    if workflow and (flutter_ui or re.search(r'/(?:design_system|widgets|pages|views)/', target)):
+    if workflow and (flutter_ui or is_ui_file(target)):
         found.append(('workflow-no-widgets', 'keep application state independent of widgets; compose them in the page'))
     if local_file.startswith(('lib/core/', 'lib/shared/')) and target.startswith('lib/features/'):
         found.append(('shared-no-feature', 'move feature composition to an explicit composition root'))
@@ -247,7 +270,7 @@ def main():
                 print(json.dumps(impact(config, files), sort_keys=True))
                 return 0
             files = tracked_and_new_files(root)
-            errors = validate_skills(root / '.agents/skills')
+            errors = validate_project_skills(root)
             errors += check_no_visual_baselines(root, files)
             errors += check_boundaries(root, config, files)
         if errors:
