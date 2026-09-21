@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'utils.dart' show selectionWidthTolerance;
+
 final class _PlainTextCounter {
   int calls = 0;
 }
@@ -219,7 +221,10 @@ void main() {
       final paragraph = await _pumpRich(tester, source: source, width: 50);
 
       expect(_rootSize(paragraph), 10);
-      expect(_selectionWidth(paragraph, 0, 3), 40);
+      expect(
+        _selectionWidth(paragraph, 0, 3),
+        closeTo(40, selectionWidthTolerance),
+      );
     });
 
     testWidgets(

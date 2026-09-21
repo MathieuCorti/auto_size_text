@@ -5,6 +5,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// Engine selection boxes cross the dart:ui boundary as Float32List values.
+// These Linux Ahem fixtures measured up to 0.0000763 logical px away from their
+// ideal advances on both supported SDKs. Keep this local to rendered geometry:
+// candidate font sizes, scaler outputs, and zero-width runs stay exact.
+const selectionWidthTolerance = 0.0001;
+
 double effectiveFontSize(Widget widget) {
   final text = widget is Text ? widget : (widget as dynamic).child as Text;
   return (text.textScaler ?? TextScaler.noScaling).scale(text.style!.fontSize!);

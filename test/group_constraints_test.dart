@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'utils.dart' show selectionWidthTolerance;
+
 final class _QuadraticTextScaler extends TextScaler {
   const _QuadraticTextScaler();
 
@@ -448,7 +450,12 @@ void main() {
         final grouped = _text(tester, groupedKey);
         final standalone = _text(tester, standaloneKey);
         expect(grouped.textScaler, standalone.textScaler);
-        expect(_selectionWidth(_paragraph(tester, groupedKey), 0, 1), 10);
+        final paragraph = _paragraph(tester, groupedKey);
+        expect(paragraph.textScaler.scale(10), 10);
+        expect(
+          _selectionWidth(paragraph, 0, 1),
+          closeTo(10, selectionWidthTolerance),
+        );
       },
     );
 
@@ -505,11 +512,21 @@ void main() {
 
       expect(_effectiveSize(tester, groupedKey), 0);
       expect(_effectiveSize(tester, standaloneKey), 0);
-      expect(_selectionWidth(_paragraph(tester, standaloneKey), 0, 1), 70);
-      expect(_selectionWidth(_paragraph(tester, groupedKey), 0, 1), 70);
+      expect(_paragraph(tester, groupedKey).textScaler.scale(100), 70);
+      expect(
+        _selectionWidth(_paragraph(tester, standaloneKey), 0, 1),
+        closeTo(70, selectionWidthTolerance),
+      );
+      expect(
+        _selectionWidth(_paragraph(tester, groupedKey), 0, 1),
+        closeTo(70, selectionWidthTolerance),
+      );
 
       await tester.pump();
-      expect(_selectionWidth(_paragraph(tester, groupedKey), 0, 1), 70);
+      expect(
+        _selectionWidth(_paragraph(tester, groupedKey), 0, 1),
+        closeTo(70, selectionWidthTolerance),
+      );
       expect(tester.binding.hasScheduledFrame, isFalse);
     });
 

@@ -132,7 +132,10 @@ void main() {
 
         expect(_rootSize(paragraph), 20);
         expect(paragraph.didExceedMaxLines, isFalse);
-        expect(_selectionWidth(paragraph, 0, 4), 80);
+        expect(
+          _selectionWidth(paragraph, 0, 4),
+          closeTo(80, selectionWidthTolerance),
+        );
         _expectPainterMatchesRenderParagraph(paragraph);
         final renderedSource =
             (paragraph.text as TextSpan).children!.single as TextSpan;
@@ -184,9 +187,18 @@ void main() {
 
         expect(_rootSize(paragraph), 11);
         expect(paragraph.textScaler.scale(40), 24);
-        expect(_selectionWidth(paragraph, 0, 1), 11);
-        expect(_selectionWidth(paragraph, 1, 2), 26);
-        expect(_selectionWidth(paragraph, 2, 3), 13);
+        expect(
+          _selectionWidth(paragraph, 0, 1),
+          closeTo(11, selectionWidthTolerance),
+        );
+        expect(
+          _selectionWidth(paragraph, 1, 2),
+          closeTo(26, selectionWidthTolerance),
+        );
+        expect(
+          _selectionWidth(paragraph, 2, 3),
+          closeTo(13, selectionWidthTolerance),
+        );
         _expectPainterMatchesRenderParagraph(paragraph);
       },
     );
@@ -240,7 +252,10 @@ void main() {
         expect(renderedChild.style!.height, 1.25);
         expect(renderedChild.style!.letterSpacing, 10);
         expect(renderedChild.style!.wordSpacing, 7);
-        expect(_selectionWidth(paragraph, 0, 4), 80);
+        expect(
+          _selectionWidth(paragraph, 0, 4),
+          closeTo(80, selectionWidthTolerance),
+        );
         _expectPainterMatchesRenderParagraph(paragraph);
       },
     );
@@ -509,8 +524,14 @@ void main() {
         isTrue,
       );
       expect(_rootSize(paragraph), 11);
-      expect(_selectionWidth(paragraph, 0, 1), 11);
-      expect(_selectionWidth(paragraph, 1, 2), 24);
+      expect(
+        _selectionWidth(paragraph, 0, 1),
+        closeTo(11, selectionWidthTolerance),
+      );
+      expect(
+        _selectionWidth(paragraph, 1, 2),
+        closeTo(24, selectionWidthTolerance),
+      );
       expect(_selectionWidth(paragraph, 2, 3), 0);
       _expectPainterMatchesRenderParagraph(paragraph);
     });
@@ -562,7 +583,10 @@ void main() {
         expect(paragraph.text.style!.fontSize, 0);
         expect(_rootSize(paragraph), 0);
         expect(_selectionWidth(paragraph, 0, 1), 0);
-        expect(_selectionWidth(paragraph, 1, 2), 24);
+        expect(
+          _selectionWidth(paragraph, 1, 2),
+          closeTo(24, selectionWidthTolerance),
+        );
       },
     );
 
