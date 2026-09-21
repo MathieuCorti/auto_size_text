@@ -43,6 +43,8 @@ Boundary failures must name the import and suggest the correct existing boundary
 
 Run focused checks during iteration, and the stable affected-surface suites before integration. Keep aggregate CI checks stable when path filtering skips unrelated work. Record actual failures honestly; do not bypass protection or mask failures.
 
+CI is optional, not a prerequisite for adopting this foundation or starting a small app. Run relevant local validation even when no pipeline exists. Preserve useful existing CI; add or expand it when the project needs it, not as mandatory setup for placeholders or early prototypes. The `--ci` option selects local stable suites and does not require a hosted service.
+
 ## Local skills and updates
 
 Real files under `.agents/skills/` are tracked with the repository. Read only the relevant references. The manifest `.gtm/project_setup.yaml` records profile, package roots, selected skills, bundle version, and original hashes. Different hashes mean local customization, not failure. Reinstallation restores missing files only; changing existing foundation files is an explicit reviewed migration. Do not use `generate --force` to adopt an existing app.
