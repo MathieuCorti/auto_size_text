@@ -10,9 +10,9 @@
   ],
   "files": {
     ".gtm/SAROPA_LICENSE": "5e3e5ebd86985888042bddabbeefbff26c50bd33bf522e5133e0252f3af7cb6a",
-    ".gtm/engineering_policy.md": "815047412bf44e28108f301c8fd92894d281799d27b7587555c0cfacf2c9e0ed",
+    ".gtm/engineering_policy.md": "0a02fc1165554e8c625bf39eafe9828782f1d9e1be6a6a3b6f35c7fed0583224",
     ".gtm/quality.json": "e112b72c892ab6a09b76dee7945145778352d024587b94b5ea775111045c9ae1",
-    "AGENTS.md": "a04596639ecf4acfa5178de00de3fcf546f817382ee3563f20c3d772b352814e",
+    "AGENTS.md": "2abd15506b99c85684f8d333232aa3cbbfa6e755bf5e4fe97d13193a0f6e2344",
     "CLAUDE.md": "8b217eda5f479911c9aff80f8648c6152776ccb2fef58bee25756ab8a45157e2",
     "tool/quality_check.py": "4a7441f40b6a29cfee49507148ef0be7d14f27efaed150fae695eff3ff123393",
     "tool/validate.sh": "2dc7af5bc87a3d735a5928cc16c877a70bf72c5244c929f40fb3d7936b1f261c",
@@ -20,7 +20,7 @@
     ".agents/skills/flutter-project/references/architecture.md": "06de4d80422b9d87a7853321a2b8ebccab885378f40811dba8c3b71cc228e6b7",
     ".agents/skills/flutter-project/references/libraries.md": "f400c5e8c110c1f3bae1257bcfdec05fcc6548465898bb1d75770b2884959252",
     ".agents/skills/flutter-project/references/state-management.md": "f9e76f39addf994e2924241fd243a855bdce1650607525d94f0be5572400d664",
-    ".agents/skills/flutter-project/references/testing.md": "af9c356352f7684fd74e85e53e79fbe6633f6b4867553193db0ff4e6d1bae853",
+    ".agents/skills/flutter-project/references/testing.md": "298d2ba8ebbf9f5c4be7bb4840c25fd8598c047ac395ee4ed7bbb75120cdcbbb",
     "analysis_options.yaml": "f8e7ec6913f1f99aed51d213a627569d7b096ca72904b8df3dc6c737ebc123b3"
   }
 }

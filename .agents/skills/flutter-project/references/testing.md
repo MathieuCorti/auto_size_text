@@ -11,4 +11,4 @@ Preserve existing useful behavioral coverage, especially auth, purchases, accoun
 
 Never add golden tests or stored screenshot/image comparison baselines, including under another name. Prefer meaningful behavioral/layout assertions and baseline-free manual or agent visual inspection. Do not create tests for empty generated feature scaffolds.
 
-Use `bash tool/validate.sh` for the normal blocking policy/boundary/analysis path, supplying relevant test paths. Use `--ci` for stable package suites. Project `AGENTS.md` may describe additional server, emulator, or native lanes. Keep optional suggestions separate, and report commands and unresolved failures honestly.
+Use `bash tool/validate.sh` for the normal blocking policy/boundary/analysis path, supplying relevant test paths. Project `AGENTS.md` may describe additional server, emulator, or native lanes. Keep optional suggestions separate, and report commands and unresolved failures honestly.

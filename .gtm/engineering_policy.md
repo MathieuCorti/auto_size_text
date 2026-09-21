@@ -41,9 +41,7 @@ Use the checked-in validation entry point. Application lint selection is a froze
 
 Boundary failures must name the import and suggest the correct existing boundary. Document narrow legitimate exceptions with their reason; do not blanket-disable the guard or suppress real regressions. Optional suggestions do not become a second blocking analysis gate. Do not introduce broad generated rule inventories or coverage/size/documentation quotas.
 
-Run focused checks during iteration, and the stable affected-surface suites before integration. Keep aggregate CI checks stable when path filtering skips unrelated work. Record actual failures honestly; do not bypass protection or mask failures.
-
-CI is optional, not a prerequisite for adopting this foundation or starting a small app. Run relevant local validation even when no pipeline exists. Preserve useful existing CI; add or expand it when the project needs it, not as mandatory setup for placeholders or early prototypes. The `--ci` option selects local stable suites and does not require a hosted service.
+Run focused checks during iteration, and the stable affected-surface suites before integration. Record actual failures honestly; do not bypass protection or mask failures.
 
 ## Local skills and updates
 
