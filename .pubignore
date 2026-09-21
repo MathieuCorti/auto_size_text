@@ -42,6 +42,13 @@ coverage.json
 /maintenance/
 /demo/
 /example/pubspec.lock
+/.agents/
+/.gtm/
+/.fvm/
+/.fvmrc
+/AGENTS.md
+/CLAUDE.md
+/tool/
 
 # Local configuration, credentials, keys, and signatures.
 **/local.properties

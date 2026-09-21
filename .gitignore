@@ -13,3 +13,4 @@ android/
 
 /pubspec.lock
 doc/api/
+.fvm/

@@ -47,8 +47,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate local engineering policy
+        run: |
+          python3 tool/quality_check.py check
+          python3 -B tool/test_ci_impact.py
+
+      - name: Determine affected surfaces
+        id: impact
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: >-
+          python3 tool/ci_impact.py --gate "${{ matrix.gate }}"
+          --base "$CI_BASE_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up Java
-        if: matrix.gate == 'demo'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'demo'
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
@@ -56,6 +69,7 @@ jobs:
           cache: gradle
 
       - name: Restore Flutter and pub caches
+        if: steps.impact.outputs.enabled == 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
@@ -64,6 +78,7 @@ jobs:
           key: flutter-${{ runner.os }}-${{ runner.arch }}-${{ matrix.flutter }}-${{ matrix.revision }}-${{ hashFiles('**/pubspec.*') }}
 
       - name: Install exact Flutter revision
+        if: steps.impact.outputs.enabled == 'true'
         env:
           CI_FLUTTER_VERSION: ${{ matrix.flutter }}
           CI_FLUTTER_REVISION: ${{ matrix.revision }}
@@ -93,7 +108,7 @@ jobs:
         run: git diff --check "${CI_BASE_SHA}..HEAD"
 
       - name: Validate package and locked example
-        if: matrix.gate == 'compat-high'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'compat-high'
         run: |
           flutter pub get --no-example
           flutter analyze --no-pub --fatal-infos --fatal-warnings lib test example/main.dart
@@ -103,13 +118,13 @@ jobs:
           flutter analyze --no-pub --fatal-infos --fatal-warnings
 
       - name: Check formatting
-        if: matrix.gate == 'compat-high'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'compat-high'
         run: >-
           dart format --output=none --set-exit-if-changed
-          lib test example/main.dart demo/lib demo/test
+          lib test example/main.dart
 
       - name: Validate minimum package and example resolution
-        if: matrix.gate == 'compat-minimum'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'compat-minimum'
         run: |
           minimum_tree="$RUNNER_TEMP/minimum-tree"
           mkdir "$minimum_tree"
@@ -124,7 +139,7 @@ jobs:
           flutter analyze --no-pub --fatal-infos --fatal-warnings
 
       - name: Validate downgraded dependencies
-        if: matrix.gate == 'downgrade'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'downgrade'
         run: |
           downgrade_tree="$RUNNER_TEMP/downgrade-tree"
           mkdir "$downgrade_tree"
@@ -141,16 +156,17 @@ jobs:
           flutter test --no-pub
 
       - name: Analyze, smoke test, and build demo
-        if: matrix.gate == 'demo'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'demo'
         working-directory: demo
         run: |
+          dart format --output=none --set-exit-if-changed lib test
           flutter pub get --enforce-lockfile
           flutter analyze --no-pub --fatal-infos --fatal-warnings
           flutter test --no-pub test/demo_smoke_test.dart
           flutter build apk --debug --no-pub
 
       - name: Check ignored tracked files
-        if: matrix.gate == 'package'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'package'
         run: |
           ignored_files="$(git ls-files -ci --exclude-standard)"
           if [ -n "$ignored_files" ]; then
@@ -159,7 +175,7 @@ jobs:
           fi
 
       - name: Validate API documentation
-        if: matrix.gate == 'package'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'package'
         env:
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter/${{ matrix.flutter }}
         run: |
@@ -170,7 +186,7 @@ jobs:
           grep -Fq 'Found 0 warnings and 0 errors.' "$dartdoc_log"
 
       - name: Validate publish archive
-        if: matrix.gate == 'package'
+        if: steps.impact.outputs.enabled == 'true' && matrix.gate == 'package'
         run: |
           publish_log="$RUNNER_TEMP/publish-dry-run.log"
           archive_listing="$RUNNER_TEMP/publish-archive-listing.txt"
@@ -220,7 +236,7 @@ jobs:
           grep -Eq '^lib/.+' "$archive_listing"
           grep -Eq '^test/.+' "$archive_listing"
 
-          forbidden_pattern='(^|/)(\.dart_tool|\.github|\.secrets|android|build|coverage|demo|ios|maintenance|secrets)(/|$)|(^|/)pubspec\.lock$|(^|/)(GoogleService-Info\.plist|google-services\.json|gradle-wrapper\.jar|gradlew|gradlew\.bat|key\.properties|keystore\.properties|local\.properties)$|(^|/)(\.env(\..*)?|.*\.(asc|cer|crt|der|jks|key|keystore|mobileprovision|p12|pem|pfx|ppk|provisionprofile|secret|sig))$|^/|^[A-Za-z]:[/\\]'
+          forbidden_pattern='(^|/)(\.agents|\.gtm|\.fvm|\.dart_tool|\.github|\.secrets|android|build|coverage|demo|ios|maintenance|secrets|tool)(/|$)|(^|/)(AGENTS\.md|CLAUDE\.md|\.fvmrc|pubspec\.lock)$|(^|/)(GoogleService-Info\.plist|google-services\.json|gradle-wrapper\.jar|gradlew|gradlew\.bat|key\.properties|keystore\.properties|local\.properties)$|(^|/)(\.env(\..*)?|.*\.(asc|cer|crt|der|jks|key|keystore|mobileprovision|p12|pem|pfx|ppk|provisionprofile|secret|sig))$|^/|^[A-Za-z]:[/\\]'
           if grep -Eq "$forbidden_pattern" "$archive_listing"; then
             printf 'Forbidden archive paths:\n'
             grep -E "$forbidden_pattern" "$archive_listing"
@@ -231,3 +247,14 @@ jobs:
         run: |
           git status --short
           test -z "$(git status --short)"
+
+  quality:
+    name: Quality
+    if: always()
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful selected work
+        env:
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: test "$VALIDATION_RESULT" = success

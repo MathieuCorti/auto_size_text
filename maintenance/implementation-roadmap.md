@@ -1,5 +1,9 @@
 # Feuille de route d'implémentation consolidée
 
+> Historical record of the completed 4.0.0 migration. This roadmap is not an
+> active work plan, approval requirement, or validation gate. Current engineering
+> instructions are in root `AGENTS.md` and `.gtm/engineering_policy.md`.
+
 Date : 2026-09-01
 Base documentaire et produit : `dev` / `d0fe48d60715ec749f9a1761416abc1b6f368dcf`
 Objet : prochaine modernisation majeure d'`auto_size_text`, sans publication,

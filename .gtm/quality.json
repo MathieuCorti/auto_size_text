@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "profile": "flutter-widget-library",
+  "packageRoots": ["."],
+  "compositionRoots": ["lib/app.dart", "lib/app/**", "lib/bootstrap.dart", "lib/bootstrap/**", "lib/core/di/**", "lib/core/router/**", "lib/core/navigation/**", "lib/router/**"],
+  "boundaryExceptions": [],
+  "serverRoots": [],
+  "contractPaths": [],
+  "releasePaths": ["fastlane/**", "scripts/release/**"]
+}
